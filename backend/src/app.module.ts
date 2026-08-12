@@ -13,6 +13,7 @@ import { DepartmentsModule } from "./departments/departments.module";
 import { OpsModule } from "./ops/ops.module";
 import { InventoryModule } from "./inventory/inventory.module";
 import { ProfilesModule } from "./profiles/profiles.module";
+import { HealthController } from "./health.controller";
 import {
   FeatureGuard,
   JwtAuthGuard,
@@ -39,6 +40,7 @@ import {
     ProfilesModule,
     OpsModule,
   ],
+  controllers: [HealthController],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },

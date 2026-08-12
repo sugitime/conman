@@ -1,0 +1,60 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+# Deploys: Postgres + API (Docker) + Web (Docker SPA)
+
+databases:
+  - name: conman-db
+    plan: free
+    databaseName: conman
+    user: conman
+
+services:
+  - type: web
+    name: conman-api
+    runtime: docker
+    plan: free
+    region: oregon
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: conman-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: CORS_ORIGIN
+        sync: false
+      - key: APP_URL
+        sync: false
+      - key: UPLOAD_DIR
+        value: /app/uploads
+      - key: SEED_ADMIN_EMAIL
+        value: admin@conman.local
+      - key: SEED_ADMIN_PASSWORD
+        generateValue: true
+      - key: SEED_ADMIN_NAME
+        value: Con Manager
+
+  - type: web
+    name: conman-web
+    runtime: docker
+    plan: free
+    region: oregon
+    rootDir: frontend
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    # VITE_API_URL must be set to the public API origin after first deploy
+    # (e.g. https://conman-api.onrender.com) then redeploy web.
+    dockerBuildArgs:
+      - key: VITE_API_URL
+        # Placeholder — deploy script / dashboard should override with real API URL
+        value: https://conman-api.onrender.com
+    envVars:
+      - key: NODE_ENV
+        value: production
