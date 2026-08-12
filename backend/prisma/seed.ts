@@ -5,6 +5,7 @@ import {
   DEFAULT_GLOBAL_FEATURES,
   PERMISSIONS,
 } from "../src/common/permissions";
+import { DEFCON_DEPARTMENTS } from "../src/common/defcon-departments";
 
 const prisma = new PrismaClient();
 
@@ -19,12 +20,13 @@ async function main() {
     where: { id: "default" },
     create: {
       id: "default",
-      conferenceName: "Example Convention",
+      conferenceName: "DEF CON",
       hotelSoloNightLimit: 3,
       hotelRoommateNightLimit: 5,
       globalFeatures: DEFAULT_GLOBAL_FEATURES,
     },
     update: {
+      conferenceName: "DEF CON",
       globalFeatures: DEFAULT_GLOBAL_FEATURES,
     },
   });
@@ -35,7 +37,8 @@ async function main() {
       name: "Full Operations Access",
       description: "Broad operational permissions for leads",
       permissions: PERMISSIONS.filter(
-        (p) => !["settings.manage", "users.manage", "policies.manage"].includes(p),
+        (p) =>
+          !["settings.manage", "users.manage", "policies.manage"].includes(p),
       ),
       isSystem: true,
     },
@@ -71,19 +74,19 @@ async function main() {
     },
   });
 
-  const depts = [
-    { name: "Operations", color: "#6366f1", isOrderingDept: false, helpdeskQueueAccess: true },
-    { name: "Logistics", color: "#0ea5e9", isOrderingDept: true, helpdeskQueueAccess: true },
-    { name: "Guest Relations", color: "#10b981", isOrderingDept: false, helpdeskQueueAccess: true },
-    { name: "Tech / AV", color: "#f59e0b", isOrderingDept: false, helpdeskQueueAccess: true },
-    { name: "Inventory", color: "#8b5cf6", isOrderingDept: true, helpdeskQueueAccess: false },
-  ];
-
-  for (const d of depts) {
+  for (const d of DEFCON_DEPARTMENTS) {
     await prisma.department.upsert({
       where: { name: d.name },
-      create: { ...d, features: DEFAULT_DEPARTMENT_FEATURES },
+      create: {
+        name: d.name,
+        description: d.description,
+        color: d.color,
+        isOrderingDept: d.isOrderingDept,
+        helpdeskQueueAccess: d.helpdeskQueueAccess,
+        features: DEFAULT_DEPARTMENT_FEATURES,
+      },
       update: {
+        description: d.description,
         color: d.color,
         isOrderingDept: d.isOrderingDept,
         helpdeskQueueAccess: d.helpdeskQueueAccess,
@@ -91,14 +94,22 @@ async function main() {
     });
   }
 
-  const ops = await prisma.department.findUnique({ where: { name: "Operations" } });
-  const logistics = await prisma.department.findUnique({ where: { name: "Logistics" } });
-  const inventoryDept = await prisma.department.findUnique({ where: { name: "Inventory" } });
+  const kevops = await prisma.department.findUnique({
+    where: { name: "KEVOPS" },
+  });
+  const qm = await prisma.department.findUnique({
+    where: { name: "Quartermaster" },
+  });
+  const dispatch = await prisma.department.findUnique({
+    where: { name: "Dispatch" },
+  });
 
-  if (ops) {
+  if (kevops) {
     await prisma.departmentMember.upsert({
-      where: { departmentId_userId: { departmentId: ops.id, userId: admin.id } },
-      create: { departmentId: ops.id, userId: admin.id, isLead: true },
+      where: {
+        departmentId_userId: { departmentId: kevops.id, userId: admin.id },
+      },
+      create: { departmentId: kevops.id, userId: admin.id, isLead: true },
       update: { isLead: true },
     });
   }
@@ -108,18 +119,20 @@ async function main() {
     where: { email: "lead@conman.local" },
     create: {
       email: "lead@conman.local",
-      name: "Dept Lead",
+      name: "Quartermaster Lead",
       passwordHash: leadHash,
       role: SystemRole.DEPARTMENT_LEAD,
       profileComplete: true,
       shirtSize: "L",
     },
-    update: {},
+    update: { name: "Quartermaster Lead" },
   });
-  if (logistics) {
+  if (qm) {
     await prisma.departmentMember.upsert({
-      where: { departmentId_userId: { departmentId: logistics.id, userId: lead.id } },
-      create: { departmentId: logistics.id, userId: lead.id, isLead: true },
+      where: {
+        departmentId_userId: { departmentId: qm.id, userId: lead.id },
+      },
+      create: { departmentId: qm.id, userId: lead.id, isLead: true },
       update: { isLead: true },
     });
   }
@@ -129,31 +142,58 @@ async function main() {
     where: { email: "volunteer@conman.local" },
     create: {
       email: "volunteer@conman.local",
-      name: "Volunteer User",
+      name: "Dispatch Volunteer",
       passwordHash: volHash,
       role: SystemRole.VOLUNTEER,
       shirtSize: "M",
       profileComplete: false,
     },
-    update: {},
+    update: { name: "Dispatch Volunteer" },
   });
-  if (logistics) {
+  if (dispatch) {
     await prisma.departmentMember.upsert({
       where: {
-        departmentId_userId: { departmentId: logistics.id, userId: volunteer.id },
+        departmentId_userId: {
+          departmentId: dispatch.id,
+          userId: volunteer.id,
+        },
       },
-      create: { departmentId: logistics.id, userId: volunteer.id, isLead: false },
+      create: {
+        departmentId: dispatch.id,
+        userId: volunteer.id,
+        isLead: false,
+      },
       update: {},
     });
   }
 
-  // Sample inventory assets
-  const invDeptId = inventoryDept?.id || logistics?.id;
+  // Sample inventory under Quartermaster
+  const invDeptId = qm?.id || kevops?.id;
   const samples = [
-    { name: "Radio HT-01", category: "Radios", serialNumber: "RAD-001", location: "Ops cage" },
-    { name: "Radio HT-02", category: "Radios", serialNumber: "RAD-002", location: "Ops cage" },
-    { name: "Master keys set A", category: "Keys", serialNumber: "KEY-A", location: "Security" },
-    { name: "Laptop Loaner 1", category: "Laptops", serialNumber: "LT-100", location: "Tech room" },
+    {
+      name: "Radio HT-01",
+      category: "Radios",
+      serialNumber: "RAD-001",
+      location: "QM cage",
+    },
+    {
+      name: "Radio HT-02",
+      category: "Radios",
+      serialNumber: "RAD-002",
+      location: "QM cage",
+    },
+    {
+      name: "Master keys set A",
+      category: "Keys",
+      serialNumber: "KEY-A",
+      location: "KEVOPS",
+    },
+    {
+      name: "Laptop Loaner 1",
+      category: "Laptops",
+      serialNumber: "LT-100",
+      location: "NOC",
+    },
   ];
   for (const s of samples) {
     const code = `INV-${s.serialNumber}`;
@@ -169,13 +209,14 @@ async function main() {
     });
   }
 
-  // Badge types
   for (const b of [
     { name: "Staff", color: "#4f46e5", accessLevel: "All areas" },
     { name: "Volunteer", color: "#0ea5e9", accessLevel: "Backstage" },
-    { name: "Guest", color: "#10b981", accessLevel: "Green room" },
+    { name: "Goon", color: "#0ea5e9", accessLevel: "Staff areas" },
     { name: "Press", color: "#f59e0b", accessLevel: "Press room" },
-    { name: "Vendor", color: "#64748b", accessLevel: "Exhibit hall" },
+    { name: "Vendor", color: "#64748b", accessLevel: "Vendor hall" },
+    { name: "Speaker", color: "#10b981", accessLevel: "Speaker ops" },
+    { name: "Black Badge", color: "#111827", accessLevel: "Contest winner" },
   ]) {
     await prisma.badgeType.upsert({
       where: { name: b.name },
@@ -184,10 +225,14 @@ async function main() {
     });
   }
 
-  const staffBadge = await prisma.badgeType.findUnique({ where: { name: "Staff" } });
+  const staffBadge = await prisma.badgeType.findUnique({
+    where: { name: "Staff" },
+  });
   if (staffBadge) {
     await prisma.badgeAssignment.upsert({
-      where: { badgeTypeId_userId: { badgeTypeId: staffBadge.id, userId: admin.id } },
+      where: {
+        badgeTypeId_userId: { badgeTypeId: staffBadge.id, userId: admin.id },
+      },
       create: { badgeTypeId: staffBadge.id, userId: admin.id },
       update: {},
     });
@@ -196,23 +241,26 @@ async function main() {
   await prisma.conBiblePage.upsert({
     where: { slug: "welcome" },
     create: {
-      title: "Welcome to ConOps",
+      title: "Welcome to DEF CON ops",
       slug: "welcome",
       category: "General",
-      body: "Emergency procedures, radio codes, and venue maps live here.",
+      body: "Emergency procedures, radio codes, and venue maps live here. This is staff/goon ConOps — not attendee registration.",
       authorId: admin.id,
       sortOrder: 0,
     },
-    update: {},
+    update: {
+      title: "Welcome to DEF CON ops",
+      body: "Emergency procedures, radio codes, and venue maps live here. This is staff/goon ConOps — not attendee registration.",
+    },
   });
 
   await prisma.conBiblePage.upsert({
     where: { slug: "radio-codes" },
     create: {
-      title: "Radio codes",
+      title: "Radio channels",
       slug: "radio-codes",
       category: "Comms",
-      body: "Channel 1 — Ops\nChannel 2 — Medical\nChannel 3 — Security",
+      body: "Ch1 — Dispatch / KEVOPS\nCh2 — SOC\nCh3 — NOC\nCh4 — Medical / Hotline (confirm on-site)",
       authorId: admin.id,
       sortOrder: 1,
     },
@@ -220,17 +268,20 @@ async function main() {
   });
 
   await prisma.room.upsert({
-    where: { name: "Green Room" },
-    create: { name: "Green Room", capacity: 20, location: "Level 2" },
+    where: { name: "Speaker Ready Room" },
+    create: {
+      name: "Speaker Ready Room",
+      capacity: 30,
+      location: "Speaker Ops",
+    },
     update: {},
   });
   await prisma.room.upsert({
-    where: { name: "Ops Office" },
-    create: { name: "Ops Office", capacity: 8, location: "Level 1" },
+    where: { name: "KEVOPS Office" },
+    create: { name: "KEVOPS Office", capacity: 12, location: "Staff area" },
     update: {},
   });
 
-  // After-action survey template
   const existingTemplate = await prisma.survey.findFirst({
     where: { templateKey: "after_action" },
   });
@@ -244,36 +295,50 @@ async function main() {
         isOpen: true,
         createdById: admin.id,
         questions: [
-          { id: "q1", type: "scale", label: "Overall ops rating (1-5)", required: true },
-          { id: "q2", type: "textarea", label: "What went well?", required: false },
-          { id: "q3", type: "textarea", label: "What should improve?", required: false },
+          {
+            id: "q1",
+            type: "scale",
+            label: "Overall ops rating (1-5)",
+            required: true,
+          },
+          {
+            id: "q2",
+            type: "textarea",
+            label: "What went well?",
+            required: false,
+          },
+          {
+            id: "q3",
+            type: "textarea",
+            label: "What should improve?",
+            required: false,
+          },
         ],
       },
     });
   }
 
-  // Org chart roots
   const orgCount = await prisma.orgChartNode.count();
   if (orgCount === 0) {
     const root = await prisma.orgChartNode.create({
-      data: { title: "Con Chair", userId: admin.id, sortOrder: 0 },
+      data: { title: "DEF CON Ops", userId: admin.id, sortOrder: 0 },
     });
-    if (ops) {
+    if (kevops) {
       await prisma.orgChartNode.create({
         data: {
-          title: "Head of Operations",
-          departmentId: ops.id,
+          title: "KEVOPS Lead",
+          departmentId: kevops.id,
           parentId: root.id,
           userId: admin.id,
           sortOrder: 1,
         },
       });
     }
-    if (logistics) {
+    if (qm) {
       await prisma.orgChartNode.create({
         data: {
-          title: "Logistics Lead",
-          departmentId: logistics.id,
+          title: "Quartermaster Lead",
+          departmentId: qm.id,
           parentId: root.id,
           userId: lead.id,
           sortOrder: 2,
@@ -284,8 +349,9 @@ async function main() {
 
   console.log("Seed complete.");
   console.log(`Con Manager: ${adminEmail} / ${adminPassword}`);
-  console.log("Lead: lead@conman.local / changeme123");
-  console.log("Volunteer: volunteer@conman.local / changeme123");
+  console.log("Lead (Quartermaster): lead@conman.local / changeme123");
+  console.log("Volunteer (Dispatch): volunteer@conman.local / changeme123");
+  console.log(`Departments: ${DEFCON_DEPARTMENTS.length} DEF CON depts`);
 }
 
 main()

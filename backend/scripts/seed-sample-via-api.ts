@@ -1,5 +1,5 @@
 /**
- * Populate ConMan with realistic demo data via the HTTP API.
+ * Populate ConMan with DEF CON–oriented demo data via the HTTP API.
  *
  * Usage:
  *   npx tsx scripts/seed-sample-via-api.ts
@@ -9,6 +9,8 @@
  *   EMAIL     default admin@conman.local
  *   PASSWORD  default changeme123
  */
+
+import { DEFCON_DEPARTMENTS } from "../src/common/defcon-departments";
 
 const API = (process.env.API_URL || "https://conman-api.onrender.com").replace(
   /\/$/,
@@ -47,62 +49,89 @@ function hoursFrom(base: Date, h: number) {
 }
 
 async function main() {
-  console.log(`Seeding sample data on ${API} as ${EMAIL}...`);
+  console.log(`Seeding DEF CON sample data on ${API} as ${EMAIL}...`);
   const login = await api<{ accessToken: string }>("/auth/login", {
     method: "POST",
     body: JSON.stringify({ email: EMAIL, password: PASSWORD }),
   });
   const token = login.accessToken;
 
-  // ── Departments ──────────────────────────────────────────────
+  // ── Conference name ──────────────────────────────────────────
+  try {
+    await api("/settings", {
+      method: "PUT",
+      token,
+      body: JSON.stringify({
+        conferenceName: "DEF CON",
+        hotelSoloNightLimit: 3,
+        hotelRoommateNightLimit: 5,
+      }),
+    });
+    console.log("  ✓ conference = DEF CON");
+  } catch (e) {
+    console.warn("  ~ settings:", (e as Error).message);
+  }
+
+  // ── All DEF CON departments ──────────────────────────────────
   let departments = await api<
-    { id: string; name: string; helpdeskQueueAccess?: boolean; isOrderingDept?: boolean }[]
+    {
+      id: string;
+      name: string;
+      helpdeskQueueAccess?: boolean;
+      isOrderingDept?: boolean;
+    }[]
   >("/departments", { token });
 
-  const wantedDepts = [
-    {
-      name: "Security",
-      color: "#ef4444",
-      description: "Venue security and access control",
-      helpdeskQueueAccess: true,
-      isOrderingDept: false,
-    },
-    {
-      name: "Medical",
-      color: "#ec4899",
-      description: "First aid and medical response",
-      helpdeskQueueAccess: true,
-      isOrderingDept: false,
-    },
-    {
-      name: "Programming",
-      color: "#14b8a6",
-      description: "Panels, guests, and stage schedule",
-      helpdeskQueueAccess: true,
-      isOrderingDept: false,
-    },
-  ];
-
-  for (const d of wantedDepts) {
-    if (!departments.find((x) => x.name === d.name)) {
+  for (const d of DEFCON_DEPARTMENTS) {
+    const existing = departments.find((x) => x.name === d.name);
+    if (!existing) {
       await api("/departments", {
         method: "POST",
         token,
         body: JSON.stringify(d),
       });
       console.log(`  + department ${d.name}`);
+    } else {
+      // Keep flags in sync with canonical list
+      try {
+        await api(`/departments/${existing.id}`, {
+          method: "PATCH",
+          token,
+          body: JSON.stringify({
+            description: d.description,
+            color: d.color,
+            isOrderingDept: d.isOrderingDept,
+            helpdeskQueueAccess: d.helpdeskQueueAccess,
+          }),
+        });
+      } catch {
+        /* leads may not change some flags */
+      }
     }
   }
   departments = await api("/departments", { token });
-  const byName = (n: string) => departments.find((d) => d.name === n)!;
-  const ops = byName("Operations");
-  const logistics = byName("Logistics");
-  const tech = byName("Tech / AV");
-  const inventory = byName("Inventory") || logistics;
-  const guestRel = byName("Guest Relations");
-  const security = byName("Security");
-  const medical = byName("Medical");
-  const programming = byName("Programming");
+  const byName = (n: string) => departments.find((d) => d.name === n);
+
+  const kevops = byName("KEVOPS");
+  const qm = byName("Quartermaster");
+  const dispatch = byName("Dispatch");
+  const soc = byName("SOC");
+  const noc = byName("NOC");
+  const hotline = byName("Hotline");
+  const speakerOps = byName("Speaker Ops");
+  const press = byName("Press");
+  const merch = byName("Merch");
+  const vendor = byName("Vendor");
+  const humanReg = byName("Human Registration");
+  const villages = byName("Villages");
+  const contests = byName("Contests");
+  const dctv = byName("DCTV");
+  const content = byName("Content and Coordination");
+  const parties = byName("Parties");
+  const workshops = byName("Workshops");
+  const nfo = byName("NFO");
+  const creatorStage = byName("Creator Stage Ops");
+  console.log(`  ✓ ${departments.length} departments (DEF CON set)`);
 
   // ── Users ────────────────────────────────────────────────────
   type UserRow = { id: string; email: string; name: string; role: string };
@@ -115,7 +144,7 @@ async function main() {
   }) => {
     const existing = users.find((x) => x.email === u.email);
     if (existing) return existing;
-    const created = await api<UserRow>("/users", {
+    await api<UserRow>("/users", {
       method: "POST",
       token,
       body: JSON.stringify({
@@ -130,57 +159,78 @@ async function main() {
     return users.find((x) => x.email === u.email)!;
   };
 
-  const leadSec = await ensureUser({
-    email: "security.lead@conman.local",
-    name: "Sam Rivera",
+  const leadQm = await ensureUser({
+    email: "qm.lead@conman.local",
+    name: "QM Lead",
     role: "DEPARTMENT_LEAD",
   });
-  const leadTech = await ensureUser({
-    email: "tech.lead@conman.local",
-    name: "Alex Chen",
+  const leadDispatch = await ensureUser({
+    email: "dispatch.lead@conman.local",
+    name: "Dispatch Lead",
     role: "DEPARTMENT_LEAD",
   });
-  const leadProg = await ensureUser({
-    email: "programming.lead@conman.local",
-    name: "Jordan Blake",
+  const leadSoc = await ensureUser({
+    email: "soc.lead@conman.local",
+    name: "SOC Lead",
     role: "DEPARTMENT_LEAD",
   });
-  const vol1 = await ensureUser({
-    email: "maya.vol@conman.local",
-    name: "Maya Ortiz",
+  const leadNoc = await ensureUser({
+    email: "noc.lead@conman.local",
+    name: "NOC Lead",
+    role: "DEPARTMENT_LEAD",
+  });
+  const leadSpeaker = await ensureUser({
+    email: "speakerops.lead@conman.local",
+    name: "Speaker Ops Lead",
+    role: "DEPARTMENT_LEAD",
+  });
+  const leadPress = await ensureUser({
+    email: "press.lead@conman.local",
+    name: "Press Lead",
+    role: "DEPARTMENT_LEAD",
+  });
+  const leadVillages = await ensureUser({
+    email: "villages.lead@conman.local",
+    name: "Villages Lead",
+    role: "DEPARTMENT_LEAD",
+  });
+
+  const goon1 = await ensureUser({
+    email: "goon.dispatch@conman.local",
+    name: "Dispatch Goon",
     role: "VOLUNTEER",
   });
-  const vol2 = await ensureUser({
-    email: "chris.vol@conman.local",
-    name: "Chris Patel",
+  const goon2 = await ensureUser({
+    email: "goon.qm@conman.local",
+    name: "QM Goon",
     role: "VOLUNTEER",
   });
-  const vol3 = await ensureUser({
-    email: "riley.vol@conman.local",
-    name: "Riley Kim",
+  const goon3 = await ensureUser({
+    email: "goon.soc@conman.local",
+    name: "SOC Goon",
     role: "VOLUNTEER",
   });
-  const vol4 = await ensureUser({
-    email: "taylor.vol@conman.local",
-    name: "Taylor Brooks",
+  const goon4 = await ensureUser({
+    email: "goon.speaker@conman.local",
+    name: "Speaker Ops Goon",
     role: "VOLUNTEER",
   });
-  const guest = await ensureUser({
-    email: "creator@conman.local",
-    name: "Casey Creator",
-    role: "GUEST",
+  const goon5 = await ensureUser({
+    email: "goon.reg@conman.local",
+    name: "Human Reg Goon",
+    role: "VOLUNTEER",
   });
 
   const admin = users.find((u) => u.email === EMAIL)!;
-  const leadLog = users.find((u) => u.email === "lead@conman.local");
-  const volDefault = users.find((u) => u.email === "volunteer@conman.local");
+  const leadLegacy = users.find((u) => u.email === "lead@conman.local");
+  const volLegacy = users.find((u) => u.email === "volunteer@conman.local");
 
-  // Memberships
   const addMember = async (
-    deptId: string,
+    deptId: string | undefined,
     userId: string,
     isLead = false,
   ) => {
+    if (!deptId) return;
     try {
       await api(`/departments/${deptId}/members`, {
         method: "POST",
@@ -192,118 +242,151 @@ async function main() {
     }
   };
 
-  if (security) await addMember(security.id, leadSec.id, true);
-  if (security) await addMember(security.id, vol1.id);
-  if (security) await addMember(security.id, vol2.id);
-  if (tech) await addMember(tech.id, leadTech.id, true);
-  if (tech) await addMember(tech.id, vol3.id);
-  if (programming) await addMember(programming.id, leadProg.id, true);
-  if (programming) await addMember(programming.id, vol4.id);
-  if (ops) await addMember(ops.id, admin.id, true);
-  if (logistics && leadLog) await addMember(logistics.id, leadLog.id, true);
-  if (logistics && volDefault) await addMember(logistics.id, volDefault.id);
-  if (guestRel) await addMember(guestRel.id, guest.id);
-  if (medical) await addMember(medical.id, vol1.id);
+  await addMember(kevops?.id, admin.id, true);
+  await addMember(qm?.id, leadQm.id, true);
+  await addMember(qm?.id, goon2.id);
+  await addMember(qm?.id, leadLegacy?.id || leadQm.id, true);
+  await addMember(dispatch?.id, leadDispatch.id, true);
+  await addMember(dispatch?.id, goon1.id);
+  await addMember(dispatch?.id, volLegacy?.id || goon1.id);
+  await addMember(soc?.id, leadSoc.id, true);
+  await addMember(soc?.id, goon3.id);
+  await addMember(noc?.id, leadNoc.id, true);
+  await addMember(speakerOps?.id, leadSpeaker.id, true);
+  await addMember(speakerOps?.id, goon4.id);
+  await addMember(press?.id, leadPress.id, true);
+  await addMember(villages?.id, leadVillages.id, true);
+  await addMember(humanReg?.id, goon5.id);
+  await addMember(hotline?.id, goon3.id);
+  await addMember(content?.id, goon4.id);
   console.log("  ✓ department memberships");
 
-  // ── Profiles (hotel / roommate) ──────────────────────────────
+  // ── Profiles ─────────────────────────────────────────────────
   const checkIn = daysFromNow(2, 15).slice(0, 10);
   const checkOut = daysFromNow(5, 11).slice(0, 10);
   try {
-    await api("/profile/" + vol1.id, {
+    await api("/profile/" + goon1.id, {
       method: "PATCH",
       token,
       body: JSON.stringify({
         phone: "+1-555-0101",
-        pronouns: "she/her",
-        shirtSize: "M",
+        pronouns: "they/them",
+        shirtSize: "L",
         hotelCheckIn: checkIn,
         hotelCheckOut: checkOut,
-        roommateId: vol2.id,
-        emergencyName: "Ana Ortiz",
+        roommateId: goon2.id,
+        emergencyName: "Emergency Contact",
         emergencyPhone: "+1-555-0199",
         dietaryNotes: "Vegetarian",
+        title: "Dispatch goon",
       }),
     });
-    await api("/profile/" + vol3.id, {
+    await api("/profile/" + goon3.id, {
       method: "PATCH",
       token,
       body: JSON.stringify({
         phone: "+1-555-0103",
-        shirtSize: "L",
+        shirtSize: "XL",
         hotelCheckIn: checkIn,
         hotelCheckOut: daysFromNow(4, 11).slice(0, 10),
-        emergencyName: "Pat Kim",
-        emergencyPhone: "+1-555-0188",
         dietaryNotes: "Nut allergy",
+        title: "SOC goon",
       }),
     });
-    console.log("  ✓ volunteer profiles / hotel");
+    console.log("  ✓ goon profiles / hotel");
   } catch (e) {
     console.warn("  ~ profiles:", (e as Error).message);
   }
 
-  // ── Master calendar ──────────────────────────────────────────
+  // ── Master calendar (DEF CON style) ──────────────────────────
   const day0 = new Date(daysFromNow(3, 9));
   const events = [
     {
-      title: "Con doors open",
+      title: "Con opens — badge lines",
       startsAt: hoursFrom(day0, 0),
-      endsAt: hoursFrom(day0, 1),
+      endsAt: hoursFrom(day0, 2),
       isMaster: true,
-      location: "Main lobby",
+      location: "Human Registration",
       color: "#4f46e5",
     },
     {
       title: "Opening ceremonies",
-      startsAt: hoursFrom(day0, 1),
-      endsAt: hoursFrom(day0, 2.5),
+      startsAt: hoursFrom(day0, 2),
+      endsAt: hoursFrom(day0, 3.5),
       isMaster: true,
-      location: "Main stage",
+      location: "Track 1",
       color: "#4f46e5",
     },
     {
-      title: "All-hands Ops standup",
-      startsAt: hoursFrom(day0, -1),
-      endsAt: hoursFrom(day0, -0.5),
+      title: "KEVOPS all-hands",
+      startsAt: hoursFrom(day0, -1.5),
+      endsAt: hoursFrom(day0, -1),
       isMaster: true,
-      location: "Ops office",
+      location: "KEVOPS",
       color: "#6366f1",
     },
     {
-      title: "AV load-in",
-      startsAt: daysFromNow(2, 8),
+      title: "NOC load-in / fiber",
+      startsAt: daysFromNow(2, 6),
       endsAt: daysFromNow(2, 14),
-      departmentId: tech?.id,
-      location: "Ballroom A",
+      departmentId: noc?.id,
+      location: "NOC",
     },
     {
-      title: "Security briefing",
+      title: "Dispatch radio check",
       startsAt: daysFromNow(2, 16),
       endsAt: daysFromNow(2, 17),
-      departmentId: security?.id,
-      location: "Security office",
+      departmentId: dispatch?.id,
+      location: "Dispatch",
     },
     {
-      title: "Guest of Honor dinner",
-      startsAt: daysFromNow(3, 18),
+      title: "Speaker Ops briefing",
+      startsAt: daysFromNow(2, 17),
+      endsAt: daysFromNow(2, 18),
+      departmentId: speakerOps?.id,
+      location: "Speaker Ready Room",
+    },
+    {
+      title: "Villages open",
+      startsAt: daysFromNow(3, 10),
+      endsAt: daysFromNow(3, 18),
+      departmentId: villages?.id,
+      location: "Village halls",
+    },
+    {
+      title: "Contests floor open",
+      startsAt: daysFromNow(3, 10),
       endsAt: daysFromNow(3, 20),
-      departmentId: guestRel?.id,
-      location: "Green Room",
+      departmentId: contests?.id,
+      location: "Contest area",
     },
     {
-      title: "Main stage panel block",
+      title: "Press pool window",
       startsAt: daysFromNow(3, 11),
-      endsAt: daysFromNow(3, 16),
-      departmentId: programming?.id,
-      location: "Main stage",
+      endsAt: daysFromNow(3, 12),
+      departmentId: press?.id,
+      location: "Press room",
     },
     {
-      title: "Load-out complete",
-      startsAt: daysFromNow(5, 18),
+      title: "Creator Stage block A",
+      startsAt: daysFromNow(3, 13),
+      endsAt: daysFromNow(3, 16),
+      departmentId: creatorStage?.id,
+      location: "Creator Stage",
+    },
+    {
+      title: "Official parties window",
+      startsAt: daysFromNow(3, 21),
+      endsAt: daysFromNow(4, 2),
+      departmentId: parties?.id,
+      location: "Off-site / venue",
+    },
+    {
+      title: "Tear-down complete",
+      startsAt: daysFromNow(5, 16),
       endsAt: daysFromNow(5, 20),
       isMaster: true,
-      location: "Loading dock",
+      location: "Loading docks",
     },
   ];
   for (const ev of events) {
@@ -322,45 +405,58 @@ async function main() {
   // ── Todos ────────────────────────────────────────────────────
   const todos = [
     {
-      title: "Print staff badges batch 1",
+      title: "Print goon badges batch 1",
       priority: "HIGH",
-      departmentId: ops?.id,
-      assigneeId: vol3.id,
+      departmentId: humanReg?.id || kevops?.id,
+      assigneeId: goon5.id,
       dueAt: daysFromNow(1, 17),
     },
     {
       title: "Confirm radio inventory count",
       priority: "MEDIUM",
-      departmentId: inventory?.id,
-      assigneeId: leadLog?.id || admin.id,
+      departmentId: qm?.id,
+      assigneeId: leadQm.id,
       dueAt: daysFromNow(1, 12),
     },
     {
-      title: "Post door maps at entrances",
+      title: "Post Dispatch maps at posts",
       priority: "URGENT",
-      departmentId: security?.id,
-      assigneeId: vol1.id,
+      departmentId: dispatch?.id,
+      assigneeId: goon1.id,
       dueAt: daysFromNow(2, 8),
     },
     {
-      title: "Test livestream uplink",
+      title: "NOC uplink failover test",
       priority: "HIGH",
-      departmentId: tech?.id,
-      assigneeId: leadTech.id,
+      departmentId: noc?.id,
+      assigneeId: leadNoc.id,
       dueAt: daysFromNow(2, 15),
     },
     {
-      title: "Finalize panelist green-room schedule",
+      title: "Speaker room water + clickers",
       priority: "MEDIUM",
-      departmentId: programming?.id,
-      assigneeId: leadProg.id,
+      departmentId: speakerOps?.id,
+      assigneeId: goon4.id,
       dueAt: daysFromNow(2, 18),
     },
     {
-      title: "Order more gaffer tape",
+      title: "SOC camera FOV walkthrough",
+      priority: "HIGH",
+      departmentId: soc?.id,
+      assigneeId: goon3.id,
+      dueAt: daysFromNow(2, 14),
+    },
+    {
+      title: "Merch restock black tees",
       priority: "LOW",
-      departmentId: logistics?.id,
-      assigneeId: volDefault?.id || vol2.id,
+      departmentId: merch?.id,
+      assigneeId: goon2.id,
+    },
+    {
+      title: "Village lead radio handout list",
+      priority: "MEDIUM",
+      departmentId: villages?.id,
+      assigneeId: leadVillages.id,
     },
   ];
   for (const t of todos) {
@@ -375,30 +471,36 @@ async function main() {
   // ── Communications ───────────────────────────────────────────
   const comms = [
     {
-      subject: "Welcome to ConStaff 2026 ops!",
-      body: "Thanks for volunteering. Please complete your profile (hotel + emergency contacts) and check your department channel.\n\n— Con Management",
+      subject: "Welcome DEF CON goons & staff",
+      body: "Thanks for volunteering. Complete your profile (hotel + emergency contacts), pick up your radio from Quartermaster, and check in with Dispatch for your first shift.\n\n— KEVOPS",
       priority: "NORMAL",
       isPinned: true,
       requiresAck: false,
     },
     {
-      subject: "CRITICAL: Fire drill route change",
-      body: "East stairwell is closed for repairs. Use West exits for drills. Acknowledge when read.",
+      subject: "CRITICAL: Escalator out of service (East)",
+      body: "East escalator offline. Use West for public flow. Acknowledge when read. — Dispatch / KEVOPS",
       priority: "CRITICAL",
       requiresAck: true,
-      departmentId: security?.id,
+      departmentId: dispatch?.id,
     },
     {
-      subject: "Logistics: morning warehouse hours",
-      body: "Warehouse open 07:00–11:00 only on load-in day. Bring asset codes for check-out.",
+      subject: "QM: radio return procedure",
+      body: "All HT radios return to Quartermaster at end of shift. Missing radio = lost badge process. Asset codes on the cage whiteboard.",
       priority: "NORMAL",
-      departmentId: logistics?.id,
+      departmentId: qm?.id,
     },
     {
-      subject: "Tech: channel assignments",
-      body: "Radios: Ch1 Ops, Ch2 Security, Ch3 Medical, Ch4 Tech. Return all radios at end of shift.",
+      subject: "NOC: channel plan reminder",
+      body: "Ch1 Dispatch/KEVOPS · Ch2 SOC · Ch3 NOC · Confirm medical/hotline channel on site whiteboard.",
       priority: "NORMAL",
-      departmentId: tech?.id,
+      departmentId: noc?.id,
+    },
+    {
+      subject: "Speaker Ops: no flash photography on stage",
+      body: "Remind Press and DCTV — no flash during talks. Questions via Speaker Ops, not stage rush.",
+      priority: "NORMAL",
+      departmentId: speakerOps?.id,
     },
   ];
   for (const c of comms) {
@@ -419,63 +521,135 @@ async function main() {
     "/departments/helpdesk-queues",
     { token },
   );
-  const q = (name: string) => queues.find((x) => x.name === name)?.id || queues[0]?.id;
+  const q = (name: string) =>
+    queues.find((x) => x.name === name)?.id || queues[0]?.id;
   const tickets = [
     {
-      title: "Main stage mic feedback",
-      description: "Wireless A has feedback on house left. Need spare or re-scan.",
+      title: "Track 1 mic RF interference",
+      description: "Wireless pack A dropping on house left. Need spare from QM/NOC path.",
       severity: "HIGH",
-      departmentId: q("Tech / AV"),
-      isIncident: false,
+      departmentId: q("NOC") || q("KEVOPS"),
     },
     {
-      title: "Lost credential at Door 3",
-      description: "Volunteer badge left at metal detector. Holding at security desk.",
+      title: "Lost goon badge at badge line",
+      description: "Blank lanyard held at Human Registration. Needs Dispatch verify.",
       severity: "MEDIUM",
-      departmentId: q("Security"),
+      departmentId: q("Human Registration") || q("Dispatch"),
     },
     {
-      title: "INCIDENT: Attendee fall near escalator",
-      description: "Non-staff visitor slip; medical on scene. Ops tracking.",
+      title: "INCIDENT: Medical assist — Skybridge",
+      description: "Hotline taking call; SOC camera review requested. Ops tracking.",
       severity: "CRITICAL",
-      departmentId: q("Medical") || q("Operations"),
+      departmentId: q("Hotline") || q("SOC"),
       isIncident: true,
     },
     {
-      title: "Need more zip ties for pipe & drape",
-      description: "Programming needs 2 packs before 10:00 panel turn.",
+      title: "Need gaffer tape for Villages",
+      description: "Village setup short on tape before 10:00 open.",
       severity: "LOW",
-      departmentId: q("Logistics"),
+      departmentId: q("Quartermaster"),
     },
     {
-      title: "Green room fridge not cooling",
-      description: "Guest Relations — drinks warm. Facilities?",
+      title: "Vendor booth power strip failed",
+      description: "Hall B booth 42 — Vendor desk escalated.",
       severity: "MEDIUM",
-      departmentId: q("Operations"),
+      departmentId: q("Vendor") || q("KEVOPS"),
+    },
+    {
+      title: "Press pool credential question",
+      description: "Outlet asking for floor access beyond press room.",
+      severity: "LOW",
+      departmentId: q("Press"),
     },
   ];
   for (const t of tickets) {
     if (!t.departmentId) continue;
     try {
-      await api("/helpdesk", { method: "POST", token, body: JSON.stringify(t) });
+      await api("/helpdesk", {
+        method: "POST",
+        token,
+        body: JSON.stringify(t),
+      });
     } catch {
       /* ignore */
     }
   }
   console.log("  ✓ helpdesk tickets");
 
-  // ── Inventory ────────────────────────────────────────────────
+  // ── Inventory (Quartermaster-centric) ────────────────────────
   const assets = [
-    { name: "Radio HT-10", category: "Radios", serialNumber: "RAD-010", location: "Ops cage", departmentId: inventory?.id },
-    { name: "Radio HT-11", category: "Radios", serialNumber: "RAD-011", location: "Ops cage", departmentId: inventory?.id },
-    { name: "Radio HT-12", category: "Radios", serialNumber: "RAD-012", location: "Security office", departmentId: security?.id },
-    { name: "Laptop Loaner 3", category: "Laptops", serialNumber: "LT-103", location: "Tech room", departmentId: tech?.id },
-    { name: "Laptop Loaner 4", category: "Laptops", serialNumber: "LT-104", location: "Tech room", departmentId: tech?.id },
-    { name: "Master keys set B", category: "Keys", serialNumber: "KEY-B", location: "Security", departmentId: security?.id },
-    { name: "Badge printer #2", category: "Equipment", serialNumber: "PRT-02", location: "Registration", departmentId: ops?.id },
-    { name: "First-aid kit Rolling-1", category: "Medical", serialNumber: "MED-R1", location: "Medical post", departmentId: medical?.id },
-    { name: "Gaffer tape case", category: "Consumables", serialNumber: "SUP-GT1", location: "Warehouse", departmentId: logistics?.id, quantity: 24, lowStockThreshold: 5 },
-    { name: "Extension cord 50ft #7", category: "Power", serialNumber: "PWR-07", location: "Ballroom A", departmentId: tech?.id },
+    {
+      name: "Radio HT-20",
+      category: "Radios",
+      serialNumber: "RAD-020",
+      location: "QM cage",
+      departmentId: qm?.id,
+    },
+    {
+      name: "Radio HT-21",
+      category: "Radios",
+      serialNumber: "RAD-021",
+      location: "QM cage",
+      departmentId: qm?.id,
+    },
+    {
+      name: "Radio HT-22",
+      category: "Radios",
+      serialNumber: "RAD-022",
+      location: "Dispatch",
+      departmentId: dispatch?.id,
+    },
+    {
+      name: "Laptop Loaner NOC-3",
+      category: "Laptops",
+      serialNumber: "LT-N3",
+      location: "NOC",
+      departmentId: noc?.id,
+    },
+    {
+      name: "Master keys set C",
+      category: "Keys",
+      serialNumber: "KEY-C",
+      location: "KEVOPS",
+      departmentId: kevops?.id,
+    },
+    {
+      name: "Badge printer #3",
+      category: "Equipment",
+      serialNumber: "PRT-03",
+      location: "Human Registration",
+      departmentId: humanReg?.id,
+    },
+    {
+      name: "GoPro pool cam A",
+      category: "Photo",
+      serialNumber: "CAM-A",
+      location: "Photo desk",
+      departmentId: byName("Photo")?.id,
+    },
+    {
+      name: "First-aid kit Rolling-2",
+      category: "Medical",
+      serialNumber: "MED-R2",
+      location: "Hotline post",
+      departmentId: hotline?.id,
+    },
+    {
+      name: "Gaffer tape case",
+      category: "Consumables",
+      serialNumber: "SUP-GT2",
+      location: "QM warehouse",
+      departmentId: qm?.id,
+      quantity: 24,
+      lowStockThreshold: 5,
+    },
+    {
+      name: "Merch float bag #1",
+      category: "Merch",
+      serialNumber: "MERCH-F1",
+      location: "Merch cage",
+      departmentId: merch?.id,
+    },
   ];
   const createdAssets: { id: string; assetCode: string; name: string }[] = [];
   for (const a of assets) {
@@ -489,7 +663,6 @@ async function main() {
       /* ignore */
     }
   }
-  // Check one out
   if (createdAssets[0]) {
     try {
       await api("/inventory/checkout", {
@@ -497,8 +670,8 @@ async function main() {
         token,
         body: JSON.stringify({
           codes: [createdAssets[0].assetCode],
-          userId: vol1.id,
-          notes: "Door 1 shift",
+          userId: goon1.id,
+          notes: "Dispatch post A",
           expectedReturnAt: daysFromNow(0, 22),
         }),
       });
@@ -513,8 +686,8 @@ async function main() {
         token,
         body: JSON.stringify({
           codes: [createdAssets[3].assetCode],
-          userId: leadTech.id,
-          notes: "Streaming station",
+          userId: leadNoc.id,
+          notes: "NOC monitoring station",
           expectedReturnAt: daysFromNow(1, 20),
         }),
       });
@@ -524,26 +697,36 @@ async function main() {
   }
   console.log(`  ✓ inventory (${createdAssets.length} items)`);
 
-  // ── Orders ───────────────────────────────────────────────────
+  // ── Orders → Quartermaster ───────────────────────────────────
   const ordering = await api<{ id: string; name: string }[]>(
     "/departments/ordering",
     { token },
   );
-  const toDept = ordering[0]?.id || logistics?.id;
+  const toDept =
+    ordering.find((d) => d.name === "Quartermaster")?.id ||
+    ordering[0]?.id ||
+    qm?.id;
   for (const o of [
     {
-      title: "AA batteries (pack of 24)",
-      quantity: 4,
-      description: "For wireless mics",
+      title: "AA batteries (24-pack)",
+      quantity: 6,
+      description: "For mics / radios",
       toDeptId: toDept,
-      fromDeptId: tech?.id,
+      fromDeptId: speakerOps?.id || noc?.id,
     },
     {
-      title: "Laminated door signs",
-      quantity: 12,
-      description: "Staff only / no cameras",
+      title: "Laminated 'Staff Only' signs",
+      quantity: 20,
+      description: "Door posts",
       toDeptId: toDept,
-      fromDeptId: security?.id,
+      fromDeptId: dispatch?.id || kevops?.id,
+    },
+    {
+      title: "Black tee restock (L/XL)",
+      quantity: 50,
+      description: "Merch floor",
+      toDeptId: merch?.id || toDept,
+      fromDeptId: merch?.id,
     },
   ]) {
     try {
@@ -557,43 +740,67 @@ async function main() {
   // ── Shifts ───────────────────────────────────────────────────
   const shifts = [
     {
-      title: "Door 1 — morning",
-      departmentId: security?.id,
+      title: "Dispatch desk — morning",
+      departmentId: dispatch?.id,
       startsAt: daysFromNow(3, 8),
-      endsAt: daysFromNow(3, 12),
-      location: "Door 1",
-      slots: 3,
-    },
-    {
-      title: "Door 1 — afternoon",
-      departmentId: security?.id,
-      startsAt: daysFromNow(3, 12),
-      endsAt: daysFromNow(3, 18),
-      location: "Door 1",
-      slots: 3,
-    },
-    {
-      title: "Main stage A1",
-      departmentId: tech?.id,
-      startsAt: daysFromNow(3, 9),
       endsAt: daysFromNow(3, 14),
-      location: "Main stage FOH",
+      location: "Dispatch",
+      slots: 3,
+    },
+    {
+      title: "Dispatch desk — swing",
+      departmentId: dispatch?.id,
+      startsAt: daysFromNow(3, 14),
+      endsAt: daysFromNow(3, 22),
+      location: "Dispatch",
+      slots: 3,
+    },
+    {
+      title: "QM cage — radios",
+      departmentId: qm?.id,
+      startsAt: daysFromNow(3, 8),
+      endsAt: daysFromNow(3, 16),
+      location: "Quartermaster",
       slots: 2,
     },
     {
-      title: "Ops desk coverage",
-      departmentId: ops?.id,
+      title: "Human Registration line",
+      departmentId: humanReg?.id,
+      startsAt: daysFromNow(3, 8),
+      endsAt: daysFromNow(3, 14),
+      location: "Badge lines",
+      slots: 6,
+    },
+    {
+      title: "Speaker Ops — Track 1",
+      departmentId: speakerOps?.id,
+      startsAt: daysFromNow(3, 9),
+      endsAt: daysFromNow(3, 17),
+      location: "Track 1",
+      slots: 3,
+    },
+    {
+      title: "SOC monitoring",
+      departmentId: soc?.id,
       startsAt: daysFromNow(3, 8),
       endsAt: daysFromNow(3, 20),
-      location: "Ops office",
+      location: "SOC",
       slots: 2,
     },
     {
-      title: "Panel wrangler — block A",
-      departmentId: programming?.id,
+      title: "NOC core",
+      departmentId: noc?.id,
+      startsAt: daysFromNow(3, 0),
+      endsAt: daysFromNow(3, 12),
+      location: "NOC",
+      slots: 2,
+    },
+    {
+      title: "Villages roaming",
+      departmentId: villages?.id,
       startsAt: daysFromNow(3, 10),
-      endsAt: daysFromNow(3, 13),
-      location: "Hall B",
+      endsAt: daysFromNow(3, 18),
+      location: "Village halls",
       slots: 4,
     },
   ];
@@ -605,13 +812,18 @@ async function main() {
         token,
         body: JSON.stringify(s),
       });
-      // assign someone
       const assignee =
-        s.departmentId === security?.id
-          ? vol1.id
-          : s.departmentId === tech?.id
-            ? vol3.id
-            : admin.id;
+        s.departmentId === dispatch?.id
+          ? goon1.id
+          : s.departmentId === qm?.id
+            ? goon2.id
+            : s.departmentId === soc?.id
+              ? goon3.id
+              : s.departmentId === speakerOps?.id
+                ? goon4.id
+                : s.departmentId === humanReg?.id
+                  ? goon5.id
+                  : admin.id;
       try {
         await api(`/shifts/${created.id}/assign`, {
           method: "POST",
@@ -630,27 +842,37 @@ async function main() {
   // ── Handovers ────────────────────────────────────────────────
   for (const h of [
     {
-      departmentId: ops?.id,
+      departmentId: kevops?.id,
       title: "Night → morning handoff",
-      shiftLabel: "Night crew",
-      body: "Badge printer jam cleared. Two open tickets on main stage. Master keys with Sam.",
+      shiftLabel: "Night",
+      body: "Badge printer jam cleared at Human Reg. Two open tickets on Track 1 RF. Master keys with Dispatch Lead.",
     },
     {
-      departmentId: security?.id,
-      title: "Door coverage notes",
+      departmentId: dispatch?.id,
+      title: "Post coverage notes",
       shiftLabel: "AM",
-      body: "Door 3 metal detector flaky — use wand. VIP list updated in Con Bible.",
+      body: "Post 3 metal detector flaky — wand only. VIP list in Con Bible. Radio check complete on Ch1.",
     },
     {
-      departmentId: tech?.id,
-      title: "FOH notes",
-      shiftLabel: "Load-in",
-      body: "FOH laptop password in vault. Spare SM58 in flight case B.",
+      departmentId: qm?.id,
+      title: "Cage notes",
+      shiftLabel: "Swing",
+      body: "12 radios out to Villages. Gaffer tape low — order pending. Merch float bag signed out.",
+    },
+    {
+      departmentId: noc?.id,
+      title: "NOC overnight",
+      shiftLabel: "Graveyard",
+      body: "Uplink stable. Spare switch in rack 2. DCTV encoder reboot at 03:12 — resolved.",
     },
   ]) {
     if (!h.departmentId) continue;
     try {
-      await api("/handovers", { method: "POST", token, body: JSON.stringify(h) });
+      await api("/handovers", {
+        method: "POST",
+        token,
+        body: JSON.stringify(h),
+      });
     } catch {
       /* ignore */
     }
@@ -659,10 +881,30 @@ async function main() {
 
   // ── Budget ───────────────────────────────────────────────────
   for (const b of [
-    { label: "Radio batteries bulk order", amount: 186.5, category: "Supplies", departmentId: logistics?.id },
-    { label: "Emergency cable purchase", amount: 92.0, category: "Tech", departmentId: tech?.id },
-    { label: "Staff pizza night", amount: 240.0, category: "Hospitality", departmentId: ops?.id },
-    { label: "Print shop — door signs", amount: 65.25, category: "Print", departmentId: ops?.id },
+    {
+      label: "Radio batteries bulk",
+      amount: 186.5,
+      category: "QM",
+      departmentId: qm?.id,
+    },
+    {
+      label: "Emergency fiber jumper",
+      amount: 92.0,
+      category: "NOC",
+      departmentId: noc?.id,
+    },
+    {
+      label: "Goon pizza night",
+      amount: 420.0,
+      category: "Hospitality",
+      departmentId: kevops?.id,
+    },
+    {
+      label: "Print shop — staff signs",
+      amount: 65.25,
+      category: "Design",
+      departmentId: byName("Design and Defacement")?.id || kevops?.id,
+    },
   ]) {
     try {
       await api("/budget", { method: "POST", token, body: JSON.stringify(b) });
@@ -670,22 +912,68 @@ async function main() {
       /* ignore */
     }
   }
-  console.log("  ✓ budget line items");
+  console.log("  ✓ budget");
 
   // ── Org chart ────────────────────────────────────────────────
   try {
     const root = await api<{ id: string }>("/org-chart", {
       method: "POST",
       token,
-      body: JSON.stringify({ title: "Con Chair", userId: admin.id, sortOrder: 0 }),
+      body: JSON.stringify({
+        title: "DEF CON Ops",
+        userId: admin.id,
+        sortOrder: 0,
+      }),
     });
     for (const n of [
-      { title: "Head of Operations", userId: admin.id, departmentId: ops?.id, parentId: root.id, sortOrder: 1 },
-      { title: "Security Lead", userId: leadSec.id, departmentId: security?.id, parentId: root.id, sortOrder: 2 },
-      { title: "Tech Lead", userId: leadTech.id, departmentId: tech?.id, parentId: root.id, sortOrder: 3 },
-      { title: "Programming Lead", userId: leadProg.id, departmentId: programming?.id, parentId: root.id, sortOrder: 4 },
+      {
+        title: "KEVOPS",
+        userId: admin.id,
+        departmentId: kevops?.id,
+        parentId: root.id,
+        sortOrder: 1,
+      },
+      {
+        title: "Dispatch Lead",
+        userId: leadDispatch.id,
+        departmentId: dispatch?.id,
+        parentId: root.id,
+        sortOrder: 2,
+      },
+      {
+        title: "Quartermaster Lead",
+        userId: leadQm.id,
+        departmentId: qm?.id,
+        parentId: root.id,
+        sortOrder: 3,
+      },
+      {
+        title: "SOC Lead",
+        userId: leadSoc.id,
+        departmentId: soc?.id,
+        parentId: root.id,
+        sortOrder: 4,
+      },
+      {
+        title: "NOC Lead",
+        userId: leadNoc.id,
+        departmentId: noc?.id,
+        parentId: root.id,
+        sortOrder: 5,
+      },
+      {
+        title: "Speaker Ops Lead",
+        userId: leadSpeaker.id,
+        departmentId: speakerOps?.id,
+        parentId: root.id,
+        sortOrder: 6,
+      },
     ]) {
-      await api("/org-chart", { method: "POST", token, body: JSON.stringify(n) });
+      await api("/org-chart", {
+        method: "POST",
+        token,
+        body: JSON.stringify(n),
+      });
     }
     console.log("  ✓ org chart");
   } catch (e) {
@@ -694,11 +982,17 @@ async function main() {
 
   // ── Badges ───────────────────────────────────────────────────
   try {
-    let badges = await api<{ id: string; name: string }[]>("/badges", { token });
-    const ensureBadge = async (name: string, color: string, accessLevel: string) => {
+    let badges = await api<{ id: string; name: string }[]>("/badges", {
+      token,
+    });
+    const ensureBadge = async (
+      name: string,
+      color: string,
+      accessLevel: string,
+    ) => {
       let b = badges.find((x) => x.name === name);
       if (!b) {
-        b = await api("/badges", {
+        await api("/badges", {
           method: "POST",
           token,
           body: JSON.stringify({ name, color, accessLevel }),
@@ -708,11 +1002,14 @@ async function main() {
       }
       return b;
     };
+    const goonBadge = await ensureBadge("Goon", "#0ea5e9", "Staff areas");
     const staff = await ensureBadge("Staff", "#4f46e5", "All areas");
-    const volBadge = await ensureBadge("Volunteer", "#0ea5e9", "Backstage");
-    for (const uid of [vol1.id, vol2.id, vol3.id, vol4.id]) {
+    await ensureBadge("Black Badge", "#111827", "Contest winner");
+    await ensureBadge("Press", "#f59e0b", "Press room");
+    await ensureBadge("Speaker", "#10b981", "Speaker ops");
+    for (const uid of [goon1.id, goon2.id, goon3.id, goon4.id, goon5.id]) {
       try {
-        await api(`/badges/${volBadge.id}/assign`, {
+        await api(`/badges/${goonBadge.id}/assign`, {
           method: "POST",
           token,
           body: JSON.stringify({ userId: uid }),
@@ -721,14 +1018,22 @@ async function main() {
         /* ignore */
       }
     }
-    try {
-      await api(`/badges/${staff.id}/assign`, {
-        method: "POST",
-        token,
-        body: JSON.stringify({ userId: leadSec.id }),
-      });
-    } catch {
-      /* ignore */
+    for (const uid of [
+      leadDispatch.id,
+      leadQm.id,
+      leadSoc.id,
+      leadNoc.id,
+      leadSpeaker.id,
+    ]) {
+      try {
+        await api(`/badges/${staff.id}/assign`, {
+          method: "POST",
+          token,
+          body: JSON.stringify({ userId: uid }),
+        });
+      } catch {
+        /* ignore */
+      }
     }
     console.log("  ✓ badges");
   } catch (e) {
@@ -737,10 +1042,27 @@ async function main() {
 
   // ── Radio ────────────────────────────────────────────────────
   for (const ch of [
-    { name: "Ops", frequency: "Ch 1", description: "Command net", departmentId: ops?.id },
-    { name: "Security", frequency: "Ch 2", departmentId: security?.id },
-    { name: "Medical", frequency: "Ch 3", departmentId: medical?.id },
-    { name: "Tech", frequency: "Ch 4", departmentId: tech?.id },
+    {
+      name: "Dispatch / KEVOPS",
+      frequency: "Ch 1",
+      description: "Primary command net",
+      departmentId: dispatch?.id || kevops?.id,
+    },
+    {
+      name: "SOC",
+      frequency: "Ch 2",
+      departmentId: soc?.id,
+    },
+    {
+      name: "NOC",
+      frequency: "Ch 3",
+      departmentId: noc?.id,
+    },
+    {
+      name: "Hotline / Medical",
+      frequency: "Ch 4",
+      departmentId: hotline?.id,
+    },
   ]) {
     try {
       const c = await api<{ id: string }>("/radio", {
@@ -753,7 +1075,7 @@ async function main() {
         token,
         body: JSON.stringify({
           userId: admin.id,
-          callSign: ch.name === "Ops" ? "Ops-1" : undefined,
+          callSign: ch.frequency === "Ch 1" ? "KEVOPS-1" : undefined,
         }),
       });
     } catch {
@@ -766,24 +1088,31 @@ async function main() {
   for (const s of [
     {
       userId: admin.id,
-      departmentId: ops?.id,
+      departmentId: kevops?.id,
       startsAt: daysFromNow(0, 8),
       endsAt: daysFromNow(0, 20),
-      notes: "Primary Ops on-call",
+      notes: "Primary KEVOPS on-call",
     },
     {
-      userId: leadSec.id,
-      departmentId: security?.id,
+      userId: leadDispatch.id,
+      departmentId: dispatch?.id,
       startsAt: daysFromNow(0, 8),
       endsAt: daysFromNow(1, 8),
-      notes: "Security overnight",
+      notes: "Dispatch overnight",
     },
     {
-      userId: leadTech.id,
-      departmentId: tech?.id,
-      startsAt: daysFromNow(3, 7),
+      userId: leadNoc.id,
+      departmentId: noc?.id,
+      startsAt: daysFromNow(3, 0),
       endsAt: daysFromNow(3, 23),
-      notes: "Show day tech lead",
+      notes: "Show-day NOC",
+    },
+    {
+      userId: leadSoc.id,
+      departmentId: soc?.id,
+      startsAt: daysFromNow(3, 8),
+      endsAt: daysFromNow(3, 22),
+      notes: "SOC floor",
     },
   ]) {
     try {
@@ -796,8 +1125,14 @@ async function main() {
 
   // ── Rooms ────────────────────────────────────────────────────
   try {
-    const rooms = await api<{ id: string; name: string }[]>("/rooms", { token });
-    const ensureRoom = async (name: string, capacity: number, location: string) => {
+    const rooms = await api<{ id: string; name: string }[]>("/rooms", {
+      token,
+    });
+    const ensureRoom = async (
+      name: string,
+      capacity: number,
+      location: string,
+    ) => {
       let r = rooms.find((x) => x.name === name);
       if (!r) {
         r = await api("/rooms", {
@@ -808,27 +1143,37 @@ async function main() {
       }
       return r;
     };
-    const green = await ensureRoom("Panel Room A", 80, "Level 2");
-    const brief = await ensureRoom("Briefing Room", 16, "Level 1");
+    const ready = await ensureRoom("Speaker Ready Room", 40, "Speaker Ops");
+    const kevopsRm = await ensureRoom("KEVOPS Office", 12, "Staff area");
+    const pressRm = await ensureRoom("Press Room", 25, "Press");
     await api("/rooms/bookings", {
       method: "POST",
       token,
       body: JSON.stringify({
-        roomId: green.id,
-        title: "Guest of Honor green time",
-        startsAt: daysFromNow(3, 14),
-        endsAt: daysFromNow(3, 16),
-        notes: "Water + quiet",
+        roomId: ready.id,
+        title: "Speaker prep — Track 1 block",
+        startsAt: daysFromNow(3, 9),
+        endsAt: daysFromNow(3, 12),
       }),
     });
     await api("/rooms/bookings", {
       method: "POST",
       token,
       body: JSON.stringify({
-        roomId: brief.id,
+        roomId: kevopsRm.id,
         title: "Dept leads midday sync",
         startsAt: daysFromNow(3, 12),
         endsAt: daysFromNow(3, 12.75),
+      }),
+    });
+    await api("/rooms/bookings", {
+      method: "POST",
+      token,
+      body: JSON.stringify({
+        roomId: pressRm.id,
+        title: "Press pool window",
+        startsAt: daysFromNow(3, 11),
+        endsAt: daysFromNow(3, 12),
       }),
     });
     console.log("  ✓ rooms / bookings");
@@ -839,38 +1184,56 @@ async function main() {
   // ── Run of show ──────────────────────────────────────────────
   for (const r of [
     {
-      title: "Doors",
-      startsAt: daysFromNow(3, 9),
-      endsAt: daysFromNow(3, 9.25),
-      location: "Lobby",
-      departmentId: ops?.id,
-      description: "House lights up, music bed",
+      title: "Doors / badge lines",
+      startsAt: daysFromNow(3, 8),
+      endsAt: daysFromNow(3, 10),
+      location: "Human Registration",
+      departmentId: humanReg?.id,
+      description: "Lines open; Dispatch posts staffed",
     },
     {
       title: "Opening ceremonies",
-      startsAt: daysFromNow(3, 10),
-      endsAt: daysFromNow(3, 11),
-      location: "Main stage",
-      departmentId: programming?.id,
-      description: "GoH intro; no flash photography",
-    },
-    {
-      title: "Panel turn / reset",
       startsAt: daysFromNow(3, 11),
-      endsAt: daysFromNow(3, 11.25),
-      location: "Main stage",
-      departmentId: tech?.id,
+      endsAt: daysFromNow(3, 12.5),
+      location: "Track 1",
+      departmentId: content?.id || speakerOps?.id,
+      description: "No flash; Speaker Ops / DCTV / NOC coordinated",
     },
     {
-      title: "Evening concert load",
-      startsAt: daysFromNow(3, 17),
-      endsAt: daysFromNow(3, 18),
-      location: "Main stage",
-      departmentId: tech?.id,
+      title: "Villages open",
+      startsAt: daysFromNow(3, 10),
+      endsAt: daysFromNow(3, 10.25),
+      location: "Village halls",
+      departmentId: villages?.id,
+    },
+    {
+      title: "Contests open",
+      startsAt: daysFromNow(3, 10),
+      endsAt: daysFromNow(3, 10.25),
+      location: "Contest floor",
+      departmentId: contests?.id,
+    },
+    {
+      title: "Workshops block A",
+      startsAt: daysFromNow(3, 13),
+      endsAt: daysFromNow(3, 16),
+      location: "Workshop rooms",
+      departmentId: workshops?.id,
+    },
+    {
+      title: "NFO evening notes",
+      startsAt: daysFromNow(3, 18),
+      endsAt: daysFromNow(3, 18.5),
+      location: "NFO",
+      departmentId: nfo?.id,
     },
   ]) {
     try {
-      await api("/run-of-show", { method: "POST", token, body: JSON.stringify(r) });
+      await api("/run-of-show", {
+        method: "POST",
+        token,
+        body: JSON.stringify(r),
+      });
     } catch {
       /* ignore */
     }
@@ -883,17 +1246,35 @@ async function main() {
       method: "POST",
       token,
       body: JSON.stringify({
-        title: "Mid-con pulse check",
+        title: "Mid-con goon pulse check",
         description: "Quick staff feedback (sample)",
         questions: [
-          { id: "q1", type: "scale", label: "How is your shift going? (1-5)", required: true },
-          { id: "q2", type: "textarea", label: "Any blockers?", required: false },
+          {
+            id: "q1",
+            type: "scale",
+            label: "How is your shift going? (1-5)",
+            required: true,
+          },
+          {
+            id: "q2",
+            type: "textarea",
+            label: "Any blockers for KEVOPS/Dispatch?",
+            required: false,
+          },
           {
             id: "q3",
             type: "single",
             label: "Department",
             required: true,
-            options: ["Ops", "Security", "Tech", "Other"],
+            options: [
+              "KEVOPS",
+              "Dispatch",
+              "Quartermaster",
+              "SOC",
+              "NOC",
+              "Speaker Ops",
+              "Other",
+            ],
           },
         ],
       }),
@@ -902,7 +1283,11 @@ async function main() {
       method: "POST",
       token,
       body: JSON.stringify({
-        answers: { q1: "4", q2: "Need more radios at Door 2", q3: "Security" },
+        answers: {
+          q1: "4",
+          q2: "Need more radios at badge line",
+          q3: "Dispatch",
+        },
       }),
     });
     console.log("  ✓ surveys");
@@ -910,25 +1295,28 @@ async function main() {
     console.warn("  ~ surveys:", (e as Error).message);
   }
 
-  // ── Vendors ──────────────────────────────────────────────────
+  // ── Vendors / exhibitors ─────────────────────────────────────
   for (const v of [
     {
-      name: "BrightLights AV Rentals",
+      name: "Hardware Village Sponsor Co.",
       contactName: "Dana Lee",
-      contactEmail: "dana@brightlights.example",
-      booth: "Loading dock B",
-      notes: "Delivers Friday 6am",
+      contactEmail: "dana@example.com",
+      booth: "Village hall B",
+      notes: "Coordinates with Villages + Vendor",
+      departmentId: vendor?.id,
     },
     {
-      name: "City Catering Co.",
+      name: "Badge electronics supplier",
       contactName: "Morgan Ellis",
-      contactEmail: "events@citycatering.example",
-      notes: "Staff meals Saturday",
+      contactEmail: "supply@example.com",
+      notes: "Quartermaster receiving dock",
+      departmentId: qm?.id,
     },
     {
-      name: "PrintRight Signs",
+      name: "Swag printer",
       contactPhone: "+1-555-0144",
-      booth: "N/A",
+      booth: "Merch",
+      departmentId: merch?.id,
     },
   ]) {
     try {
@@ -945,16 +1333,19 @@ async function main() {
       method: "POST",
       token,
       body: JSON.stringify({
-        name: "Saturday staff lunch",
+        name: "Saturday goon lunch",
         mealDate: daysFromNow(3, 12),
-        notes: "Pick up at Ops",
-        departmentId: ops?.id,
+        notes: "Pick up near KEVOPS",
+        departmentId: kevops?.id,
       }),
     });
     await api(`/meals/${meal.id}/select`, {
       method: "POST",
       token,
-      body: JSON.stringify({ choice: "Vegetarian wrap", dietaryNote: "No onions" }),
+      body: JSON.stringify({
+        choice: "Vegetarian wrap",
+        dietaryNote: "No onions",
+      }),
     });
     console.log("  ✓ meals");
   } catch (e) {
@@ -965,18 +1356,18 @@ async function main() {
   for (const item of [
     {
       title: "Black umbrella",
-      location: "Hall B",
-      description: "Found near panel room",
+      location: "Contest floor",
+      description: "Found near contests",
       status: "FOUND",
     },
     {
-      title: "iPhone case (no phone)",
-      location: "Door 1",
+      title: "Badge holder (empty)",
+      location: "Human Registration",
       status: "FOUND",
     },
     {
-      title: "Staff lanyard — blank",
-      location: "Escalator landing",
+      title: "Radio belt clip",
+      location: "Dispatch",
       status: "FOUND",
     },
   ]) {
@@ -998,14 +1389,14 @@ async function main() {
       title: "Venue floor plan L1",
       externalUrl: "https://example.com/maps/l1.png",
       description: "Sample map link",
-      tags: ["map", "venue"],
-      departmentId: ops?.id,
+      tags: ["map", "venue", "KEVOPS"],
+      departmentId: kevops?.id,
     },
     {
-      title: "Stage plot — main",
-      externalUrl: "https://example.com/stage/main.pdf",
-      tags: ["tech", "stage"],
-      departmentId: tech?.id,
+      title: "Stage plot — Track 1",
+      externalUrl: "https://example.com/stage/track1.pdf",
+      tags: ["speaker-ops", "dctv"],
+      departmentId: speakerOps?.id || dctv?.id,
     },
   ]) {
     try {
@@ -1022,22 +1413,29 @@ async function main() {
       title: "Emergency contacts",
       slug: "emergency-contacts",
       category: "Emergency",
-      body: "Venue security: ext 2911\nMedical on-site: Ch 3 / ext 2912\nCon Manager cell: see Ops whiteboard",
+      body: "Dispatch / KEVOPS: Ch1\nSOC: Ch2\nNOC: Ch3\nHotline: Ch4 (confirm on-site)\nVenue security: see whiteboard",
       sortOrder: 2,
     },
     {
       title: "Radio etiquette",
       slug: "radio-etiquette",
       category: "Comms",
-      body: "Clear speech, no names of minors, use call signs, release PTT fully.",
+      body: "Clear speech, no real names of minors, use call signs, release PTT fully. Lost radio = report to QM + Dispatch.",
       sortOrder: 3,
     },
     {
-      title: "VIP list handling",
-      slug: "vip-handling",
-      category: "Security",
-      body: "VIP list is confidential. Verify photo ID. Escort via back hall only.",
+      title: "Black Badge / contests notes",
+      slug: "black-badge-notes",
+      category: "Contests",
+      body: "Black Badge Board coordinates winners. Do not invent privileges — verify with Contests leads.",
       sortOrder: 4,
+    },
+    {
+      title: "Press handling",
+      slug: "press-handling",
+      category: "Press",
+      body: "Press room access only with Press lead approval. No stage flash. Escort via Press routes.",
+      sortOrder: 5,
     },
   ]) {
     try {
@@ -1048,28 +1446,17 @@ async function main() {
   }
   console.log("  ✓ con bible pages");
 
-  // ── Conference name ──────────────────────────────────────────
-  try {
-    await api("/settings", {
-      method: "PUT",
-      token,
-      body: JSON.stringify({
-        conferenceName: "ConStaff Demo Convention 2026",
-        hotelSoloNightLimit: 3,
-        hotelRoommateNightLimit: 5,
-      }),
-    });
-    console.log("  ✓ conference settings");
-  } catch {
-    /* ignore */
+  console.log("\nDEF CON sample data load complete.");
+  console.log("Open https://conman-web.onrender.com");
+  console.log("\nDepartments seeded (canonical list):");
+  for (const d of DEFCON_DEPARTMENTS) {
+    console.log(`  - ${d.name}`);
   }
-
-  console.log("\nSample data load complete.");
-  console.log("Open https://conman-web.onrender.com and explore.");
-  console.log("Extra logins (password changeme123):");
-  console.log("  security.lead@conman.local");
-  console.log("  tech.lead@conman.local");
-  console.log("  maya.vol@conman.local");
+  console.log("\nExtra logins (password changeme123):");
+  console.log("  dispatch.lead@conman.local");
+  console.log("  qm.lead@conman.local");
+  console.log("  soc.lead@conman.local");
+  console.log("  goon.dispatch@conman.local");
 }
 
 main().catch((e) => {
