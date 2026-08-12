@@ -19,4 +19,4 @@ echo "Seeding (idempotent)..."
 npx tsx prisma/seed.ts || echo "Seed skipped/failed (non-fatal)"
 
 echo "Starting API on PORT=${PORT:-4000}..."
-exec node dist/main.js
+exec node dist/src/main.js
