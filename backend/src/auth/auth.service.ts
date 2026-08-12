@@ -35,21 +35,28 @@ export class AuthService {
   }
 
   async login(email: string, password: string) {
-    const user = await this.validateUser(email, password);
-    if (!user) throw new UnauthorizedException("Invalid email or password");
-    const token = await this.jwt.signAsync({
-      sub: user.id,
-      email: user.email,
-    });
-    return {
-      accessToken: token,
-      user: {
-        id: user.id,
+    try {
+      const user = await this.validateUser(email, password);
+      if (!user) throw new UnauthorizedException("Invalid email or password");
+      const token = await this.jwt.signAsync({
+        sub: user.id,
         email: user.email,
-        name: user.name,
-        role: user.role,
-      },
-    };
+      });
+      return {
+        accessToken: token,
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          role: user.role,
+        },
+      };
+    } catch (err) {
+      if (err instanceof UnauthorizedException) throw err;
+      // Surface DB/schema issues instead of opaque 500
+      const message = err instanceof Error ? err.message : String(err);
+      throw new UnauthorizedException(`Login failed: ${message}`);
+    }
   }
 
   async registerFromInvite(token: string, name: string, password: string) {
