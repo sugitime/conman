@@ -15,7 +15,7 @@ services:
     region: oregon
     rootDir: backend
     buildCommand: npm install && npx prisma generate && npm run build
-    startCommand: npx prisma db push --accept-data-loss; npx tsx prisma/seed.ts; node dist/src/main.js
+    startCommand: node dist/main.js
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV

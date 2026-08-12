@@ -1,8 +1,33 @@
 import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
+import { execSync } from "child_process";
 import { AppModule } from "./app.module";
 
+function prepareDatabase() {
+  if (process.env.SKIP_DB_PREPARE === "1") return;
+  try {
+    // eslint-disable-next-line no-console
+    console.log("Preparing database schema...");
+    execSync("npx prisma db push --accept-data-loss", {
+      stdio: "inherit",
+      env: process.env,
+    });
+    try {
+      execSync("npx tsx prisma/seed.ts", { stdio: "inherit", env: process.env });
+    } catch {
+      // eslint-disable-next-line no-console
+      console.warn("Seed skipped or failed (non-fatal)");
+    }
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error("Database prepare failed:", err);
+    // Continue — health endpoint can still come up if DB is later available
+  }
+}
+
 async function bootstrap() {
+  prepareDatabase();
+
   const app = await NestFactory.create(AppModule);
   const origin = process.env.CORS_ORIGIN || "http://localhost:5173";
   app.enableCors({
