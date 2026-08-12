@@ -11,6 +11,8 @@ import { PoliciesModule } from "./policies/policies.module";
 import { SettingsModule } from "./settings/settings.module";
 import { DepartmentsModule } from "./departments/departments.module";
 import { OpsModule } from "./ops/ops.module";
+import { InventoryModule } from "./inventory/inventory.module";
+import { ProfilesModule } from "./profiles/profiles.module";
 import {
   FeatureGuard,
   JwtAuthGuard,
@@ -33,6 +35,8 @@ import {
     PoliciesModule,
     SettingsModule,
     DepartmentsModule,
+    InventoryModule,
+    ProfilesModule,
     OpsModule,
   ],
   providers: [

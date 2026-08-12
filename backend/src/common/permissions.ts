@@ -1,6 +1,5 @@
 /** Canonical permission keys used by policies and role defaults */
 export const PERMISSIONS = [
-  // System
   "settings.manage",
   "users.manage",
   "policies.manage",
@@ -11,8 +10,11 @@ export const PERMISSIONS = [
   "helpdesk.master",
   "comms.broadcast",
   "todos.any",
-
-  // Department-scoped (checked with department context where relevant)
+  "audit.view",
+  "kiosk.manage",
+  "vendors.manage",
+  "meals.manage",
+  "stafflists.print",
   "department.manage",
   "department.invite",
   "helpdesk.create",
@@ -26,9 +28,11 @@ export const PERMISSIONS = [
   "handover.manage",
   "shifts.manage",
   "inventory.manage",
+  "inventory.checkout",
   "orders.request",
   "orders.fulfill",
   "budget.manage",
+  "budget.approve",
   "lostfound.manage",
   "media.manage",
   "bible.manage",
@@ -62,6 +66,12 @@ export const GLOBAL_FEATURES = [
   "handover_notes",
   "item_orders",
   "run_of_show",
+  "vendors",
+  "meals",
+  "kiosk_checkin",
+  "staff_lists",
+  "audit_log",
+  "schedule_publishing",
 ] as const;
 
 export type GlobalFeature = (typeof GLOBAL_FEATURES)[number];
@@ -83,45 +93,16 @@ export const DEPARTMENT_FEATURES = [
 
 export type DepartmentFeature = (typeof DEPARTMENT_FEATURES)[number];
 
-export const DEFAULT_GLOBAL_FEATURES: Record<GlobalFeature, boolean> = {
-  org_chart: true,
-  badge_system: true,
-  shift_scheduling: true,
-  communications_hub: true,
-  asset_inventory: true,
-  radio_channels: true,
-  on_call_roster: true,
-  room_booking: true,
-  budget_tracking: true,
-  lost_and_found: true,
-  media_gallery: true,
-  con_bible: true,
-  helpdesk: true,
-  calendar: true,
-  todos: true,
-  documents: true,
-  surveys: true,
-  handover_notes: true,
-  item_orders: true,
-  run_of_show: true,
-};
+export const DEFAULT_GLOBAL_FEATURES: Record<GlobalFeature, boolean> = Object.fromEntries(
+  GLOBAL_FEATURES.map((f) => [f, true]),
+) as Record<GlobalFeature, boolean>;
 
-export const DEFAULT_DEPARTMENT_FEATURES: Record<DepartmentFeature, boolean> = {
-  helpdesk: true,
-  calendar: true,
-  todos: true,
-  communications: true,
-  documents: true,
-  surveys: true,
-  handover_notes: true,
-  shifts: true,
-  inventory: true,
-  run_of_show: true,
-  budget: true,
-  item_orders: true,
-};
+export const DEFAULT_DEPARTMENT_FEATURES: Record<DepartmentFeature, boolean> =
+  Object.fromEntries(DEPARTMENT_FEATURES.map((f) => [f, true])) as Record<
+    DepartmentFeature,
+    boolean
+  >;
 
-/** Baseline permissions by system role (policies add more) */
 export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
   CON_MANAGER: [...PERMISSIONS],
   DEPARTMENT_LEAD: [
@@ -138,19 +119,19 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     "handover.manage",
     "shifts.manage",
     "inventory.manage",
+    "inventory.checkout",
     "orders.request",
     "orders.fulfill",
     "budget.manage",
     "runofshow.manage",
+    "meals.manage",
+    "stafflists.print",
   ],
   VOLUNTEER: [
     "helpdesk.create",
     "calendar.overlay_request",
     "documents.manage",
+    "inventory.checkout",
   ],
   GUEST: ["documents.manage"],
 };
-
-export function featureToPermissionGate(feature: GlobalFeature): string {
-  return `feature:${feature}`;
-}

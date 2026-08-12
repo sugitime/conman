@@ -16,6 +16,16 @@ enum SystemRole {
   GUEST
 }
 
+enum ShirtSize {
+  XS
+  S
+  M
+  L
+  XL
+  XXL
+  XXXL
+}
+
 model User {
   id           String     @id @default(cuid())
   email        String     @unique
@@ -25,9 +35,27 @@ model User {
   isActive     Boolean    @default(true)
   phone        String?
   title        String?
+  pronouns     String?
   avatarUrl    String?
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+
+  // Volunteer / staff profile
+  hotelCheckIn    DateTime?
+  hotelCheckOut   DateTime?
+  roommateId      String?
+  shirtSize       ShirtSize?
+  emergencyName   String?
+  emergencyPhone  String?
+  dietaryNotes    String? // privacy-controlled
+  medicalNotes    String? // privacy-controlled
+  profileComplete Boolean   @default(false)
+  hotelCompliant  Boolean   @default(true)
+  hotelWarning    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  roommate            User?  @relation("Roommates", fields: [roommateId], references: [id], onDelete: SetNull)
+  roommatesOf         User[] @relation("Roommates")
 
   policyAssignments   AccessPolicyAssignment[]
   departmentMembers   DepartmentMember[]
@@ -49,10 +77,12 @@ model User {
   surveyResponses     SurveyResponse[]
   handoverNotes       HandoverNote[]
   shifts              ShiftAssignment[]
-  inventoryLogs       InventoryLog[]
+  inventoryLogs       InventoryEvent[]         @relation("InventoryActor")
+  checkedOutItems     InventoryItem[]          @relation("CheckedOutTo")
   orderRequests       ItemOrder[]              @relation("OrdersRequested")
   ordersFulfilled     ItemOrder[]              @relation("OrdersFulfilled")
-  budgetEntries       BudgetEntry[]
+  budgetEntries       BudgetEntry[]            @relation("BudgetCreated")
+  budgetApprovals     BudgetEntry[]            @relation("BudgetApproved")
   lostFoundItems      LostFoundItem[]
   mediaUploads        MediaItem[]
   biblePages          ConBiblePage[]
@@ -62,9 +92,14 @@ model User {
   onCallSlots         OnCallSlot[]
   roomBookings        RoomBooking[]
   notifications       Notification[]
+  auditLogs           AuditLog[]
+  staffCheckIns       StaffCheckIn[]
+  mealSelections      MealSelection[]
+  vendorsManaged      Vendor[]                 @relation("VendorContact")
 
   @@index([role])
   @@index([isActive])
+  @@index([roommateId])
 }
 
 model PasswordResetToken {
@@ -97,12 +132,11 @@ model Invite {
   @@index([departmentId])
 }
 
-/// Named reusable permission set
 model AccessPolicy {
   id          String   @id @default(cuid())
   name        String   @unique
   description String?
-  permissions String[] // Permission keys, e.g. "helpdesk.manage"
+  permissions String[]
   isSystem    Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -124,55 +158,56 @@ model AccessPolicyAssignment {
 // ─── Settings & Feature Toggles ──────────────────────────────────
 
 model AppSettings {
-  id                    String   @id @default("default")
-  conferenceName        String   @default("Conference")
-  hotelSoloNightLimit   Int      @default(0)
-  hotelRoommateNightLimit Int    @default(0)
-  // SMTP
-  smtpHost              String?
-  smtpPort              Int      @default(587)
-  smtpUser              String?
-  smtpPassword          String?
-  smtpFrom              String?
-  smtpSecure            Boolean  @default(false)
-  // Global feature toggles (JSON map of FeatureKey -> boolean)
-  globalFeatures        Json     @default("{}")
-  updatedAt             DateTime @updatedAt
+  id                      String   @id @default("default")
+  conferenceName          String   @default("Conference")
+  hotelSoloNightLimit     Int      @default(0)
+  hotelRoommateNightLimit Int      @default(0)
+  smtpHost                String?
+  smtpPort                Int      @default(587)
+  smtpUser                String?
+  smtpPassword            String?
+  smtpFrom                String?
+  smtpSecure              Boolean  @default(false)
+  globalFeatures          Json     @default("{}")
+  updatedAt               DateTime @updatedAt
 }
 
 // ─── Departments ─────────────────────────────────────────────────
 
 model Department {
-  id                   String   @id @default(cuid())
-  name                 String   @unique
-  description          String?
-  color                String   @default("#6366f1")
-  isOrderingDept       Boolean  @default(false)
-  helpdeskQueueAccess  Boolean  @default(false)
-  // Per-department feature toggles
-  features             Json     @default("{}")
-  isActive             Boolean  @default(true)
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  id                  String   @id @default(cuid())
+  name                String   @unique
+  description         String?
+  color               String   @default("#6366f1")
+  isOrderingDept      Boolean  @default(false)
+  helpdeskQueueAccess Boolean  @default(false)
+  features            Json     @default("{}")
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
-  members          DepartmentMember[]
-  invites          Invite[]
-  todos            Todo[]
-  communications   Communication[]
-  tickets          HelpdeskTicket[]
-  calendarEvents   CalendarEvent[]
-  documents        Document[]
-  surveys          Survey[]
-  handoverNotes    HandoverNote[]
-  shifts           Shift[]
-  inventoryItems   InventoryItem[]
-  ordersRequested  ItemOrder[]       @relation("OrderFromDept")
-  ordersFulfilled  ItemOrder[]       @relation("OrderToDept")
-  budgetEntries    BudgetEntry[]
-  orgNodes         OrgChartNode[]
-  radioChannels    RadioChannel[]
-  onCallSlots      OnCallSlot[]
-  runOfShowItems   RunOfShowItem[]
+  members         DepartmentMember[]
+  invites         Invite[]
+  todos           Todo[]
+  communications  Communication[]
+  tickets         HelpdeskTicket[]
+  calendarEvents  CalendarEvent[]
+  documents       Document[]
+  surveys         Survey[]
+  handoverNotes   HandoverNote[]
+  shifts          Shift[]
+  inventoryItems  InventoryItem[]
+  ordersRequested ItemOrder[]        @relation("OrderFromDept")
+  ordersFulfilled ItemOrder[]        @relation("OrderToDept")
+  budgetEntries   BudgetEntry[]
+  orgNodes        OrgChartNode[]
+  radioChannels   RadioChannel[]
+  onCallSlots     OnCallSlot[]
+  runOfShowItems  RunOfShowItem[]
+  mediaItems      MediaItem[]
+  vendors         Vendor[]
+  mealPlans       MealPlan[]
+  publishedSchedules PublishedSchedule[]
 }
 
 model DepartmentMember {
@@ -227,33 +262,52 @@ model Todo {
   @@index([status])
 }
 
-// ─── Communications ──────────────────────────────────────────────
+// ─── Communications (SMS-ready model) ────────────────────────────
+
+enum CommPriority {
+  NORMAL
+  CRITICAL
+}
+
+enum CommChannel {
+  IN_APP
+  EMAIL
+  SMS // reserved for future gateway
+}
 
 model Communication {
-  id           String   @id @default(cuid())
-  subject      String
-  body         String
-  departmentId String?
-  authorId     String
-  // empty = all in department (or broadcast if no dept)
-  recipientIds String[]
-  isPinned     Boolean  @default(false)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id              String       @id @default(cuid())
+  subject         String
+  body            String
+  departmentId    String?
+  authorId        String
+  recipientIds    String[] // specific people; empty + department = whole dept
+  targetRoles     SystemRole[] // optional role targeting
+  priority        CommPriority @default(NORMAL)
+  channels        CommChannel[] @default([IN_APP])
+  requiresAck     Boolean      @default(false)
+  isPinned        Boolean      @default(false)
+  // Future SMS gateway fields
+  smsProviderId   String?
+  smsPayload      Json?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
 
-  department Department?          @relation(fields: [departmentId], references: [id], onDelete: Cascade)
-  author     User                 @relation("CommsSent", fields: [authorId], references: [id], onDelete: Cascade)
+  department Department?         @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  author     User                @relation("CommsSent", fields: [authorId], references: [id], onDelete: Cascade)
   reads      CommunicationRead[]
 
   @@index([departmentId])
   @@index([authorId])
+  @@index([priority])
 }
 
 model CommunicationRead {
-  id              String   @id @default(cuid())
+  id              String    @id @default(cuid())
   communicationId String
   userId          String
-  readAt          DateTime @default(now())
+  readAt          DateTime  @default(now())
+  acknowledgedAt  DateTime?
 
   communication Communication @relation(fields: [communicationId], references: [id], onDelete: Cascade)
   user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -261,7 +315,7 @@ model CommunicationRead {
   @@unique([communicationId, userId])
 }
 
-// ─── Helpdesk ────────────────────────────────────────────────────
+// ─── Helpdesk + Incident ─────────────────────────────────────────
 
 enum TicketSeverity {
   LOW
@@ -279,18 +333,19 @@ enum TicketStatus {
 }
 
 model HelpdeskTicket {
-  id               String         @id @default(cuid())
-  title            String
-  description      String
-  severity         TicketSeverity @default(MEDIUM)
-  status           TicketStatus   @default(OPEN)
-  departmentId     String
-  createdById      String
-  assigneeId       String?
-  escalatedToId    String?
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
-  resolvedAt       DateTime?
+  id            String         @id @default(cuid())
+  title         String
+  description   String
+  severity      TicketSeverity @default(MEDIUM)
+  status        TicketStatus   @default(OPEN)
+  departmentId  String
+  createdById   String
+  assigneeId    String?
+  escalatedToId String?
+  isIncident    Boolean        @default(false)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  resolvedAt    DateTime?
 
   department Department        @relation(fields: [departmentId], references: [id], onDelete: Cascade)
   createdBy  User              @relation("TicketsCreated", fields: [createdById], references: [id], onDelete: Cascade)
@@ -300,15 +355,16 @@ model HelpdeskTicket {
   @@index([departmentId])
   @@index([status])
   @@index([severity])
+  @@index([isIncident])
 }
 
 model HelpdeskComment {
-  id        String   @id @default(cuid())
-  ticketId  String
-  authorId  String
-  body      String
-  isInternal Boolean @default(false)
-  createdAt DateTime @default(now())
+  id         String   @id @default(cuid())
+  ticketId   String
+  authorId   String
+  body       String
+  isInternal Boolean  @default(false)
+  createdAt  DateTime @default(now())
 
   ticket HelpdeskTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   author User           @relation(fields: [authorId], references: [id], onDelete: Cascade)
@@ -316,7 +372,7 @@ model HelpdeskComment {
   @@index([ticketId])
 }
 
-// ─── Calendar ────────────────────────────────────────────────────
+// ─── Calendar & Published Schedules ──────────────────────────────
 
 model CalendarEvent {
   id           String   @id @default(cuid())
@@ -326,20 +382,23 @@ model CalendarEvent {
   startsAt     DateTime
   endsAt       DateTime
   allDay       Boolean  @default(false)
-  isMaster     Boolean  @default(false) // Con Manager master calendar
+  isMaster     Boolean  @default(false)
+  isPublished  Boolean  @default(false)
   color        String?
   departmentId String?
   ownerId      String
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  department Department? @relation(fields: [departmentId], references: [id], onDelete: Cascade)
-  owner      User        @relation("EventsOwned", fields: [ownerId], references: [id], onDelete: Cascade)
+  department   Department?     @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  owner        User            @relation("EventsOwned", fields: [ownerId], references: [id], onDelete: Cascade)
+  runOfShow    RunOfShowItem[]
 
   @@index([startsAt, endsAt])
   @@index([departmentId])
   @@index([ownerId])
   @@index([isMaster])
+  @@index([isPublished])
 }
 
 enum OverlayStatus {
@@ -362,6 +421,19 @@ model CalendarOverlayRequest {
   @@unique([requesterId, targetId])
 }
 
+model PublishedSchedule {
+  id           String   @id @default(cuid())
+  title        String
+  departmentId String?
+  icalBody     String
+  publishedAt  DateTime @default(now())
+  createdById  String?
+
+  department Department? @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  @@index([departmentId])
+}
+
 // ─── Documents ───────────────────────────────────────────────────
 
 enum DocumentSource {
@@ -375,7 +447,6 @@ model Document {
   description  String?
   departmentId String?
   source       DocumentSource @default(LOCAL)
-  // current revision pointer fields (denormalized for list speed)
   currentUrl   String?
   currentPath  String?
   mimeType     String?
@@ -392,17 +463,17 @@ model Document {
 }
 
 model DocumentRevision {
-  id         String   @id @default(cuid())
-  documentId String
-  version    Int
-  source     DocumentSource
-  url        String?
-  filePath   String?
-  mimeType   String?
-  sizeBytes  Int?
-  notes      String?
+  id          String         @id @default(cuid())
+  documentId  String
+  version     Int
+  source      DocumentSource
+  url         String?
+  filePath    String?
+  mimeType    String?
+  sizeBytes   Int?
+  notes       String?
   createdById String
-  createdAt  DateTime @default(now())
+  createdAt   DateTime       @default(now())
 
   document  Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
   createdBy User     @relation(fields: [createdById], references: [id], onDelete: Cascade)
@@ -411,15 +482,18 @@ model DocumentRevision {
   @@index([documentId])
 }
 
-// ─── Surveys ─────────────────────────────────────────────────────
+// ─── Surveys (Google Forms-like) ─────────────────────────────────
 
 model Survey {
   id           String   @id @default(cuid())
   title        String
   description  String?
   departmentId String?
-  questions    Json     // [{id, type, label, required, options?}]
+  // [{id, type: text|textarea|single|multi|scale|date, label, required, options?}]
+  questions    Json
   isOpen       Boolean  @default(true)
+  isTemplate   Boolean  @default(false)
+  templateKey  String? // e.g. after_action
   createdById  String
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -432,14 +506,16 @@ model Survey {
 model SurveyResponse {
   id        String   @id @default(cuid())
   surveyId  String
-  userId    String
+  userId    String?
+  // allow anonymous kiosk responses
+  responder String?
   answers   Json
   createdAt DateTime @default(now())
 
   survey Survey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user   User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
 
-  @@unique([surveyId, userId])
+  @@index([surveyId])
 }
 
 // ─── Handover Notes ──────────────────────────────────────────────
@@ -451,6 +527,7 @@ model HandoverNote {
   title        String
   body         String
   shiftLabel   String?
+  forDate      DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -463,16 +540,17 @@ model HandoverNote {
 // ─── Shifts ──────────────────────────────────────────────────────
 
 model Shift {
-  id           String   @id @default(cuid())
-  departmentId String
-  title        String
-  description  String?
-  startsAt     DateTime
-  endsAt       DateTime
-  location     String?
-  slots        Int      @default(1)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id             String   @id @default(cuid())
+  departmentId   String
+  title          String
+  description    String?
+  startsAt       DateTime
+  endsAt         DateTime
+  location       String?
+  slots          Int      @default(1)
+  allowSelfSignup Boolean @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   department  Department        @relation(fields: [departmentId], references: [id], onDelete: Cascade)
   assignments ShiftAssignment[]
@@ -494,37 +572,72 @@ model ShiftAssignment {
   @@unique([shiftId, userId])
 }
 
-// ─── Inventory / Assets ──────────────────────────────────────────
+// ─── Inventory / Asset Tracking ──────────────────────────────────
+
+enum InventoryStatus {
+  AVAILABLE
+  CHECKED_OUT
+  MAINTENANCE
+  LOST
+}
 
 model InventoryItem {
-  id           String   @id @default(cuid())
-  departmentId String?
-  name         String
-  sku          String?
-  description  String?
-  quantity     Int      @default(0)
-  location     String?
-  metadata     Json?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id              String          @id @default(cuid())
+  departmentId    String?
+  name            String
+  description     String?
+  serialNumber    String?
+  category        String?
+  status          InventoryStatus @default(AVAILABLE)
+  location        String?
+  assetCode       String          @unique // QR/barcode payload
+  quantity        Int             @default(1) // usually 1 for tracked assets
+  lowStockThreshold Int?
+  checkedOutToId  String?
+  checkedOutAt    DateTime?
+  expectedReturnAt DateTime?
+  checkoutNotes   String?
+  sourceOrderId   String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
 
-  department Department?    @relation(fields: [departmentId], references: [id], onDelete: SetNull)
-  logs       InventoryLog[]
+  department   Department?      @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  checkedOutTo User?            @relation("CheckedOutTo", fields: [checkedOutToId], references: [id], onDelete: SetNull)
+  events       InventoryEvent[]
 
   @@index([departmentId])
+  @@index([status])
+  @@index([category])
   @@index([name])
 }
 
-model InventoryLog {
-  id        String   @id @default(cuid())
-  itemId    String
-  userId    String
-  delta     Int
-  note      String?
-  createdAt DateTime @default(now())
+enum InventoryEventType {
+  CREATED
+  UPDATED
+  CHECK_OUT
+  CHECK_IN
+  MAINTENANCE
+  LOST
+  FOUND
+  STOCK_ADJUST
+  RECEIVED_FROM_ORDER
+}
 
-  item InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
-  user User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+model InventoryEvent {
+  id        String             @id @default(cuid())
+  itemId    String
+  actorId   String
+  type      InventoryEventType
+  notes     String?
+  meta      Json?
+  createdAt DateTime           @default(now())
+
+  item  InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  actor User          @relation("InventoryActor", fields: [actorId], references: [id], onDelete: Cascade)
+
+  @@index([itemId])
+  @@index([type])
+  @@index([createdAt])
 }
 
 // ─── Item Orders ─────────────────────────────────────────────────
@@ -538,17 +651,18 @@ enum OrderStatus {
 }
 
 model ItemOrder {
-  id              String      @id @default(cuid())
-  title           String
-  description     String?
-  quantity        Int         @default(1)
-  status          OrderStatus @default(REQUESTED)
-  fromDeptId      String?
-  toDeptId        String?
-  requestedById   String
-  fulfilledById   String?
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
+  id            String      @id @default(cuid())
+  title         String
+  description   String?
+  quantity      Int         @default(1)
+  status        OrderStatus @default(REQUESTED)
+  fromDeptId    String?
+  toDeptId      String?
+  requestedById String
+  fulfilledById String?
+  receivedToInventory Boolean @default(false)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
 
   fromDept    Department? @relation("OrderFromDept", fields: [fromDeptId], references: [id], onDelete: SetNull)
   toDept      Department? @relation("OrderToDept", fields: [toDeptId], references: [id], onDelete: SetNull)
@@ -559,23 +673,35 @@ model ItemOrder {
   @@index([toDeptId])
 }
 
-// ─── Budget ──────────────────────────────────────────────────────
+// ─── Budget (approval workflow) ──────────────────────────────────
+
+enum BudgetStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  REJECTED
+}
 
 model BudgetEntry {
-  id           String   @id @default(cuid())
-  departmentId String?
-  label        String
-  amount       Decimal  @db.Decimal(12, 2)
-  category     String?
-  notes        String?
-  incurredAt   DateTime @default(now())
-  createdById  String
-  createdAt    DateTime @default(now())
+  id            String       @id @default(cuid())
+  departmentId  String?
+  label         String
+  amount        Decimal      @db.Decimal(12, 2)
+  category      String?
+  notes         String?
+  status        BudgetStatus @default(PENDING)
+  incurredAt    DateTime     @default(now())
+  createdById   String
+  approvedById  String?
+  approvedAt    DateTime?
+  createdAt     DateTime     @default(now())
 
   department Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
-  createdBy  User        @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  createdBy  User        @relation("BudgetCreated", fields: [createdById], references: [id], onDelete: Cascade)
+  approvedBy User?       @relation("BudgetApproved", fields: [approvedById], references: [id], onDelete: SetNull)
 
   @@index([departmentId])
+  @@index([status])
 }
 
 // ─── Lost & Found ────────────────────────────────────────────────
@@ -588,14 +714,14 @@ enum LostFoundStatus {
 }
 
 model LostFoundItem {
-  id          String          @id @default(cuid())
-  title       String
-  description String?
-  location    String?
-  status      LostFoundStatus @default(FOUND)
+  id           String          @id @default(cuid())
+  title        String
+  description  String?
+  location     String?
+  status       LostFoundStatus @default(FOUND)
   reportedById String
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
 
   reportedBy User @relation(fields: [reportedById], references: [id], onDelete: Cascade)
 }
@@ -603,16 +729,20 @@ model LostFoundItem {
 // ─── Media Gallery ───────────────────────────────────────────────
 
 model MediaItem {
-  id          String   @id @default(cuid())
-  title       String
-  description String?
-  url         String?
-  filePath    String?
-  mimeType    String?
+  id           String   @id @default(cuid())
+  title        String
+  description  String?
+  url          String?
+  filePath     String?
+  mimeType     String?
+  tags         String[]
+  departmentId String?
+  eventLabel   String?
   uploadedById String
-  createdAt   DateTime @default(now())
+  createdAt    DateTime @default(now())
 
-  uploadedBy User @relation(fields: [uploadedById], references: [id], onDelete: Cascade)
+  uploadedBy User        @relation(fields: [uploadedById], references: [id], onDelete: Cascade)
+  department Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
 }
 
 // ─── Con Bible ───────────────────────────────────────────────────
@@ -642,9 +772,9 @@ model OrgChartNode {
   parentId     String?
   sortOrder    Int     @default(0)
 
-  user       User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
-  department Department?   @relation(fields: [departmentId], references: [id], onDelete: SetNull)
-  parent     OrgChartNode? @relation("OrgTree", fields: [parentId], references: [id], onDelete: SetNull)
+  user       User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  department Department?    @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  parent     OrgChartNode?  @relation("OrgTree", fields: [parentId], references: [id], onDelete: SetNull)
   children   OrgChartNode[] @relation("OrgTree")
 }
 
@@ -655,16 +785,18 @@ model BadgeType {
   name        String  @unique
   description String?
   color       String  @default("#0ea5e9")
+  accessLevel String?
 
   assignments BadgeAssignment[]
 }
 
 model BadgeAssignment {
-  id         String   @id @default(cuid())
+  id          String   @id @default(cuid())
   badgeTypeId String
-  userId     String
-  notes      String?
-  createdAt  DateTime @default(now())
+  userId      String
+  notes       String?
+  badgeCode   String   @unique @default(cuid())
+  createdAt   DateTime @default(now())
 
   badgeType BadgeType @relation(fields: [badgeTypeId], references: [id], onDelete: Cascade)
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -707,6 +839,7 @@ model OnCallSlot {
   startsAt     DateTime
   endsAt       DateTime
   notes        String?
+  contactPhone String?
   createdAt    DateTime @default(now())
 
   department Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
@@ -735,16 +868,16 @@ model Room {
 }
 
 model RoomBooking {
-  id          String            @id @default(cuid())
-  roomId      String
-  userId      String
-  title       String
-  startsAt    DateTime
-  endsAt      DateTime
-  status      RoomBookingStatus @default(REQUESTED)
-  notes       String?
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
+  id        String            @id @default(cuid())
+  roomId    String
+  userId    String
+  title     String
+  startsAt  DateTime
+  endsAt    DateTime
+  status    RoomBookingStatus @default(REQUESTED)
+  notes     String?
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
 
   room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -755,32 +888,116 @@ model RoomBooking {
 // ─── Run of Show ─────────────────────────────────────────────────
 
 model RunOfShowItem {
+  id             String    @id @default(cuid())
+  departmentId   String?
+  calendarEventId String?
+  title          String
+  description    String?
+  startsAt       DateTime
+  endsAt         DateTime?
+  location       String?
+  sortOrder      Int       @default(0)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  department    Department?    @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  calendarEvent CalendarEvent? @relation(fields: [calendarEventId], references: [id], onDelete: SetNull)
+
+  @@index([startsAt])
+  @@index([calendarEventId])
+}
+
+// ─── Vendors / Exhibitors ────────────────────────────────────────
+
+model Vendor {
   id           String   @id @default(cuid())
+  name         String
+  contactName  String?
+  contactEmail String?
+  contactPhone String?
+  booth        String?
+  notes        String?
   departmentId String?
-  title        String
-  description  String?
-  startsAt     DateTime
-  endsAt       DateTime?
-  location     String?
-  sortOrder    Int      @default(0)
+  contactUserId String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  department Department? @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  department  Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  contactUser User?       @relation("VendorContact", fields: [contactUserId], references: [id], onDelete: SetNull)
+}
 
-  @@index([startsAt])
+// ─── Meals / Dietary ─────────────────────────────────────────────
+
+model MealPlan {
+  id           String   @id @default(cuid())
+  name         String
+  mealDate     DateTime
+  departmentId String?
+  notes        String?
+  createdAt    DateTime @default(now())
+
+  department Department?     @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  selections MealSelection[]
+}
+
+model MealSelection {
+  id          String  @id @default(cuid())
+  mealPlanId  String
+  userId      String
+  choice      String?
+  dietaryNote String?
+
+  mealPlan MealPlan @relation(fields: [mealPlanId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([mealPlanId, userId])
+}
+
+// ─── Staff / Volunteer Check-in Kiosk ────────────────────────────
+
+model StaffCheckIn {
+  id         String    @id @default(cuid())
+  userId     String
+  checkedInAt DateTime @default(now())
+  checkedOutAt DateTime?
+  method     String    @default("kiosk") // kiosk | badge_scan | manual
+  notes      String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([checkedInAt])
+}
+
+// ─── Audit Log ───────────────────────────────────────────────────
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  action     String
+  entityType String?
+  entityId   String?
+  meta       Json?
+  ip         String?
+  createdAt  DateTime @default(now())
+
+  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([actorId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
 }
 
 // ─── Notifications ───────────────────────────────────────────────
 
 model Notification {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   userId    String
   title     String
   body      String?
   href      String?
   readAt    DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 

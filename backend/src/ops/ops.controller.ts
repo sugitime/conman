@@ -28,6 +28,7 @@ import { OpsService } from "./ops.service";
 import {
   AuthUser,
   CurrentUser,
+  Public,
   RequireFeature,
   RequirePermissions,
   RequireRoles,
@@ -111,6 +112,9 @@ export class OpsController {
       body: string;
       departmentId?: string;
       recipientIds?: string[];
+      targetRoles?: ("CON_MANAGER" | "DEPARTMENT_LEAD" | "VOLUNTEER" | "GUEST")[];
+      priority?: "NORMAL" | "CRITICAL";
+      requiresAck?: boolean;
       isPinned?: boolean;
     },
   ) {
@@ -119,8 +123,12 @@ export class OpsController {
 
   @Post("communications/:id/read")
   @RequireFeature("communications_hub")
-  markRead(@Param("id") id: string, @CurrentUser() user: AuthUser) {
-    return this.ops.markCommRead(id, user.id);
+  markRead(
+    @Param("id") id: string,
+    @CurrentUser() user: AuthUser,
+    @Body() body?: { acknowledge?: boolean },
+  ) {
+    return this.ops.markCommRead(id, user.id, body?.acknowledge);
   }
 
   // Helpdesk
@@ -153,6 +161,7 @@ export class OpsController {
       description: string;
       severity?: TicketSeverity;
       departmentId: string;
+      isIncident?: boolean;
     },
   ) {
     return this.ops.createTicket(user, body);
@@ -352,9 +361,26 @@ export class OpsController {
       description?: string;
       departmentId?: string;
       questions: unknown;
+      isTemplate?: boolean;
+      templateKey?: string;
     },
   ) {
     return this.ops.createSurvey(user.id, body);
+  }
+
+  @Get("surveys/:id")
+  @RequireFeature("surveys")
+  getSurvey(@Param("id") id: string) {
+    return this.ops.getSurvey(id);
+  }
+
+  @Get("surveys/:id/export")
+  @RequireFeature("surveys")
+  exportSurvey(
+    @Param("id") id: string,
+    @Query("format") format?: "csv" | "text",
+  ) {
+    return this.ops.exportSurvey(id, format || "csv");
   }
 
   @Post("surveys/:id/responses")
@@ -362,9 +388,9 @@ export class OpsController {
   respond(
     @Param("id") id: string,
     @CurrentUser() user: AuthUser,
-    @Body() body: { answers: unknown },
+    @Body() body: { answers: unknown; responder?: string },
   ) {
-    return this.ops.respondSurvey(id, user.id, body.answers);
+    return this.ops.respondSurvey(id, user.id, body.answers, body.responder);
   }
 
   // Handover
@@ -422,38 +448,22 @@ export class OpsController {
     return this.ops.assignShift(id, body.userId);
   }
 
-  // Inventory
-  @Get("inventory")
-  @RequireFeature("asset_inventory")
-  listInventory(@Query("departmentId") departmentId?: string) {
-    return this.ops.listInventory(departmentId);
+  @Post("shifts/:id/signup")
+  @RequireFeature("shift_scheduling")
+  signupShift(@Param("id") id: string, @CurrentUser() user: AuthUser) {
+    return this.ops.assignShift(id, user.id);
   }
 
-  @Post("inventory")
-  @RequireFeature("asset_inventory")
-  createInventory(
-    @Body()
-    body: {
-      name: string;
-      departmentId?: string;
-      sku?: string;
-      description?: string;
-      quantity?: number;
-      location?: string;
-    },
-  ) {
-    return this.ops.createInventoryItem(body);
-  }
-
-  @Post("inventory/:id/adjust")
-  @RequireFeature("asset_inventory")
-  adjustInventory(
+  @Delete("shifts/:id/assign/:userId")
+  @RequireFeature("shift_scheduling")
+  unassignShift(
     @Param("id") id: string,
-    @CurrentUser() user: AuthUser,
-    @Body() body: { delta: number; note?: string },
+    @Param("userId") userId: string,
   ) {
-    return this.ops.adjustInventory(id, user.id, body.delta, body.note);
+    return this.ops.unassignShift(id, userId);
   }
+
+  // Inventory routes live in InventoryController
 
   // Orders
   @Get("orders")
@@ -510,6 +520,115 @@ export class OpsController {
     },
   ) {
     return this.ops.createBudget(user.id, body);
+  }
+
+  @Patch("budget/:id/status")
+  @RequireFeature("budget_tracking")
+  approveBudget(
+    @Param("id") id: string,
+    @CurrentUser() user: AuthUser,
+    @Body() body: { status: "APPROVED" | "REJECTED" },
+  ) {
+    return this.ops.approveBudget(id, user.id, body.status);
+  }
+
+  @Get("calendar/export.ics")
+  @RequireFeature("schedule_publishing")
+  async exportIcal(
+    @CurrentUser() user: AuthUser,
+    @Query("departmentId") departmentId?: string,
+  ) {
+    return {
+      contentType: "text/calendar",
+      body: await this.ops.exportIcal(user, departmentId),
+    };
+  }
+
+  @Get("vendors")
+  @RequireFeature("vendors")
+  listVendors() {
+    return this.ops.listVendors();
+  }
+
+  @Post("vendors")
+  @RequireFeature("vendors")
+  createVendor(
+    @Body()
+    body: {
+      name: string;
+      contactName?: string;
+      contactEmail?: string;
+      contactPhone?: string;
+      booth?: string;
+      notes?: string;
+      departmentId?: string;
+    },
+  ) {
+    return this.ops.createVendor(body);
+  }
+
+  @Get("meals")
+  @RequireFeature("meals")
+  listMeals() {
+    return this.ops.listMeals();
+  }
+
+  @Post("meals")
+  @RequireFeature("meals")
+  createMeal(
+    @Body()
+    body: {
+      name: string;
+      mealDate: string;
+      departmentId?: string;
+      notes?: string;
+    },
+  ) {
+    return this.ops.createMeal(body);
+  }
+
+  @Post("meals/:id/select")
+  @RequireFeature("meals")
+  selectMeal(
+    @Param("id") id: string,
+    @CurrentUser() user: AuthUser,
+    @Body() body: { choice?: string; dietaryNote?: string },
+  ) {
+    return this.ops.selectMeal(id, user.id, body.choice, body.dietaryNote);
+  }
+
+  @Public()
+  @Post("kiosk/check-in")
+  @RequireFeature("kiosk_checkin")
+  kioskCheckIn(
+    @Body()
+    body: {
+      userId?: string;
+      email?: string;
+      badgeCode?: string;
+      method?: string;
+    },
+  ) {
+    return this.ops.kioskCheckIn(body);
+  }
+
+  @Get("kiosk/status")
+  @RequireFeature("kiosk_checkin")
+  kioskStatus() {
+    return this.ops.kioskStatus();
+  }
+
+  @Get("badges/print/:userId")
+  @RequireFeature("badge_system")
+  badgePrint(@Param("userId") userId: string) {
+    return this.ops.badgePrintData(userId);
+  }
+
+  @Get("audit")
+  @RequireFeature("audit_log")
+  @RequirePermissions("audit.view")
+  audit(@Query("limit") limit?: string) {
+    return this.ops.listAudit(limit ? Number(limit) : 100);
   }
 
   // Lost & Found

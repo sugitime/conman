@@ -263,12 +263,13 @@ export function HelpdeskPage() {
     description: "",
     severity: "MEDIUM",
     departmentId: "",
+    isIncident: false,
   });
 
   async function create(e: FormEvent) {
     e.preventDefault();
     await api("/helpdesk", { method: "POST", body: JSON.stringify(form) });
-    setForm({ title: "", description: "", severity: "MEDIUM", departmentId: "" });
+    setForm({ title: "", description: "", severity: "MEDIUM", departmentId: "", isIncident: false });
     reload();
   }
 
@@ -381,6 +382,14 @@ export function HelpdeskPage() {
                 required
               />
             </div>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={form.isIncident}
+                onChange={(e) => setForm({ ...form, isIncident: e.target.checked })}
+              />
+              Incident report (feeds helpdesk)
+            </label>
             <Button type="submit">Submit</Button>
           </form>
         </Card>
@@ -470,12 +479,14 @@ export function CommunicationsPage() {
   const { data, error, reload } = useLoad<any[]>("/communications");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
+  const [priority, setPriority] = useState("NORMAL");
+  const [requiresAck, setRequiresAck] = useState(false);
 
   async function create(e: FormEvent) {
     e.preventDefault();
     await api("/communications", {
       method: "POST",
-      body: JSON.stringify({ subject, body }),
+      body: JSON.stringify({ subject, body, priority, requiresAck }),
     });
     setSubject("");
     setBody("");
@@ -484,29 +495,52 @@ export function CommunicationsPage() {
 
   return (
     <div>
-      <PageHeader title="Communications" subtitle="Internal messages to staff and volunteers" />
+      <PageHeader
+        title="Communications hub"
+        subtitle="Priority announcements · read/ack receipts · SMS-ready model"
+      />
       {error ? <Alert>{error}</Alert> : null}
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="space-y-3 lg:col-span-2">
           {(data || []).map((c) => (
             <Card key={c.id} className="mb-3">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2">
                 <div className="font-medium">{c.subject}</div>
-                {c.isPinned ? <Badge tone="indigo">Pinned</Badge> : null}
+                <div className="flex gap-2">
+                  {c.priority === "CRITICAL" ? <Badge tone="rose">CRITICAL</Badge> : null}
+                  {c.requiresAck ? <Badge tone="amber">Ack required</Badge> : null}
+                  {c.isPinned ? <Badge tone="indigo">Pinned</Badge> : null}
+                </div>
               </div>
               <div className="mt-1 text-xs text-slate-500">
                 {c.author?.name} · {formatDate(c.createdAt)}
               </div>
               <p className="mt-3 whitespace-pre-wrap text-sm text-slate-700">{c.body}</p>
-              <Button
-                className="mt-3"
-                variant="secondary"
-                onClick={() =>
-                  void api(`/communications/${c.id}/read`, { method: "POST" }).then(reload)
-                }
-              >
-                Mark read
-              </Button>
+              <div className="mt-3 flex gap-2">
+                <Button
+                  variant="secondary"
+                  onClick={() =>
+                    void api(`/communications/${c.id}/read`, {
+                      method: "POST",
+                      body: JSON.stringify({}),
+                    }).then(reload)
+                  }
+                >
+                  Mark read
+                </Button>
+                {c.requiresAck ? (
+                  <Button
+                    onClick={() =>
+                      void api(`/communications/${c.id}/read`, {
+                        method: "POST",
+                        body: JSON.stringify({ acknowledge: true }),
+                      }).then(reload)
+                    }
+                  >
+                    Acknowledge
+                  </Button>
+                ) : null}
+              </div>
             </Card>
           ))}
         </div>
@@ -516,6 +550,21 @@ export function CommunicationsPage() {
               <Label>Subject</Label>
               <Input value={subject} onChange={(e) => setSubject(e.target.value)} required />
             </div>
+            <div>
+              <Label>Priority</Label>
+              <Select value={priority} onChange={(e) => setPriority(e.target.value)}>
+                <option value="NORMAL">Normal</option>
+                <option value="CRITICAL">Critical</option>
+              </Select>
+            </div>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={requiresAck}
+                onChange={(e) => setRequiresAck(e.target.checked)}
+              />
+              Require acknowledgement
+            </label>
             <div>
               <Label>Body</Label>
               <Textarea rows={5} value={body} onChange={(e) => setBody(e.target.value)} required />
@@ -539,6 +588,15 @@ export function CalendarPage() {
   const { data, error, reload } = useLoad<any[]>(
     `/calendar?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`,
   );
+
+  async function downloadIcs() {
+    const res = await api<{ body: string }>("/calendar/export.ics");
+    const blob = new Blob([res.body], { type: "text/calendar" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "conman-schedule.ics";
+    a.click();
+  }
   const [form, setForm] = useState({
     title: "",
     startsAt: "",
@@ -561,7 +619,12 @@ export function CalendarPage() {
     <div>
       <PageHeader
         title="Calendar"
-        subtitle="Outlook-style schedule with master calendar overlay"
+        subtitle="Master overlay · publish / iCal export for Google Calendar"
+        actions={
+          <Button variant="secondary" onClick={() => void downloadIcs()}>
+            Export iCal
+          </Button>
+        }
       />
       {error ? <Alert>{error}</Alert> : null}
       <div className="grid gap-4 lg:grid-cols-3">
@@ -788,31 +851,142 @@ function SimpleCrudPage({
 }
 
 export function SurveysPage() {
+  const { data, error, reload } = useLoad<any[]>("/surveys");
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [qLabel, setQLabel] = useState("Feedback");
+  const [selected, setSelected] = useState<string | null>(null);
+  const detail = useLoad<any>(selected ? `/surveys/${selected}` : "/surveys/__none", [selected]);
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+
   return (
-    <SimpleCrudPage
-      title="Surveys"
-      subtitle="Collect structured feedback from staff"
-      path="/surveys"
-      fields={[
-        { key: "title", label: "Title", required: true },
-        { key: "description", label: "Description", type: "textarea" },
-      ]}
-      buildBody={(f) => ({
-        title: f.title,
-        description: f.description,
-        questions: [
-          { id: "q1", type: "text", label: "Feedback", required: true },
-        ],
-      })}
-      renderItem={(s) => (
-        <>
-          <div className="font-medium">{s.title}</div>
-          <div className="text-xs text-slate-500">
-            {s._count?.responses || 0} responses · {s.isOpen ? "Open" : "Closed"}
-          </div>
-        </>
-      )}
-    />
+    <div>
+      <PageHeader
+        title="Surveys"
+        subtitle="Google Forms-style surveys with CSV / text export"
+      />
+      {error ? <Alert>{error}</Alert> : null}
+      <div className="grid gap-4 lg:grid-cols-3">
+        <div className="lg:col-span-2 space-y-3">
+          {(data || []).map((s) => (
+            <Card key={s.id} className="mb-3">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <div className="font-medium">{s.title}</div>
+                  <div className="text-xs text-slate-500">
+                    {s._count?.responses || 0} responses
+                    {s.isTemplate ? " · template" : ""}
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="secondary" onClick={() => setSelected(s.id)}>
+                    Open
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() =>
+                      void api<{ content: string }>(`/surveys/${s.id}/export?format=csv`).then(
+                        (r) => {
+                          const blob = new Blob([r.content], { type: "text/csv" });
+                          const a = document.createElement("a");
+                          a.href = URL.createObjectURL(blob);
+                          a.download = `${s.title}.csv`;
+                          a.click();
+                        },
+                      )
+                    }
+                  >
+                    Export CSV
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() =>
+                      void api<{ content: string }>(`/surveys/${s.id}/export?format=text`).then(
+                        (r) => {
+                          const blob = new Blob([r.content], { type: "text/plain" });
+                          const a = document.createElement("a");
+                          a.href = URL.createObjectURL(blob);
+                          a.download = `${s.title}.txt`;
+                          a.click();
+                        },
+                      )
+                    }
+                  >
+                    Export text
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          ))}
+          {selected && detail.data?.questions ? (
+            <Card title={`Respond: ${detail.data.title}`}>
+              <form
+                className="space-y-3"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void api(`/surveys/${selected}/responses`, {
+                    method: "POST",
+                    body: JSON.stringify({ answers }),
+                  }).then(() => {
+                    setAnswers({});
+                    detail.reload();
+                    reload();
+                  });
+                }}
+              >
+                {(detail.data.questions as { id: string; label: string; type: string }[]).map(
+                  (q) => (
+                    <div key={q.id}>
+                      <Label>{q.label}</Label>
+                      {q.type === "textarea" ? (
+                        <Textarea
+                          value={answers[q.id] || ""}
+                          onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })}
+                        />
+                      ) : (
+                        <Input
+                          value={answers[q.id] || ""}
+                          onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })}
+                        />
+                      )}
+                    </div>
+                  ),
+                )}
+                <Button type="submit">Submit response</Button>
+              </form>
+            </Card>
+          ) : null}
+        </div>
+        <Card title="Create survey">
+          <form
+            className="space-y-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void api("/surveys", {
+                method: "POST",
+                body: JSON.stringify({
+                  title,
+                  description,
+                  questions: [
+                    { id: "q1", type: "textarea", label: qLabel, required: true },
+                    { id: "q2", type: "text", label: "Optional follow-up", required: false },
+                  ],
+                }),
+              }).then(() => {
+                setTitle("");
+                setDescription("");
+                reload();
+              });
+            }}
+          >
+            <Input placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} required />
+            <Textarea placeholder="Description" value={description} onChange={(e) => setDescription(e.target.value)} />
+            <Input placeholder="First question label" value={qLabel} onChange={(e) => setQLabel(e.target.value)} />
+            <Button type="submit">Create</Button>
+          </form>
+        </Card>
+      </div>
+    </div>
   );
 }
 
@@ -826,6 +1000,7 @@ export function ShiftsPage() {
     endsAt: "",
     location: "",
   });
+  const [signupError, setSignupError] = useState("");
 
   async function create(e: FormEvent) {
     e.preventDefault();
@@ -835,8 +1010,12 @@ export function ShiftsPage() {
 
   return (
     <div>
-      <PageHeader title="Shift scheduling" subtitle="Staff shifts by department" />
+      <PageHeader
+        title="Shift scheduling"
+        subtitle="Signup or assign · conflict detection vs other shifts and calendar"
+      />
       {error ? <Alert>{error}</Alert> : null}
+      {signupError ? <Alert>{signupError}</Alert> : null}
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="lg:col-span-2 space-y-3">
           {(data || []).map((s) => (
@@ -846,9 +1025,23 @@ export function ShiftsPage() {
                 {s.department?.name} · {formatDate(s.startsAt)} → {formatDate(s.endsAt)}
               </div>
               <div className="mt-2 text-sm">
-                Assigned:{" "}
+                Assigned ({s.assignments?.length || 0}/{s.slots}):{" "}
                 {s.assignments?.map((a: any) => a.user.name).join(", ") || "None"}
               </div>
+              <Button
+                className="mt-2"
+                variant="secondary"
+                onClick={() =>
+                  void api(`/shifts/${s.id}/signup`, { method: "POST" })
+                    .then(() => {
+                      setSignupError("");
+                      reload();
+                    })
+                    .catch((e) => setSignupError(e.message))
+                }
+              >
+                Sign up
+              </Button>
             </Card>
           ))}
         </div>
@@ -910,31 +1103,192 @@ export function ShiftsPage() {
   );
 }
 
-export function InventoryPage() {
+export function HandoversPage() {
+  const depts = useLoad<{ id: string; name: string }[]>("/departments");
+  const [departmentId, setDepartmentId] = useState("");
+  const [notes, setNotes] = useState<any[]>([]);
+  const [error, setError] = useState("");
+  const [form, setForm] = useState({ title: "", body: "", shiftLabel: "" });
+
+  useEffect(() => {
+    if (!departmentId && depts.data?.[0]) setDepartmentId(depts.data[0].id);
+  }, [depts.data, departmentId]);
+
+  useEffect(() => {
+    if (!departmentId) return;
+    void api<any[]>(`/handovers?departmentId=${departmentId}`)
+      .then(setNotes)
+      .catch((e) => setError(e.message));
+  }, [departmentId]);
+
+  function reload() {
+    if (!departmentId) return;
+    void api<any[]>(`/handovers?departmentId=${departmentId}`).then(setNotes);
+  }
+
+  return (
+    <div>
+      <PageHeader
+        title="Handover notes"
+        subtitle="Shift/day transition notes for the next crew"
+      />
+      {error ? <Alert>{error}</Alert> : null}
+      <div className="mb-4 max-w-xs">
+        <Label>Department</Label>
+        <Select value={departmentId} onChange={(e) => setDepartmentId(e.target.value)}>
+          {(depts.data || []).map((d) => (
+            <option key={d.id} value={d.id}>{d.name}</option>
+          ))}
+        </Select>
+      </div>
+      <div className="grid gap-4 lg:grid-cols-3">
+        <div className="lg:col-span-2 space-y-3">
+          {notes.map((h) => (
+            <Card key={h.id} className="mb-3">
+              <div className="font-medium">{h.title}</div>
+              <div className="text-xs text-slate-500">
+                {h.author?.name} · {h.shiftLabel || "—"} · {formatDate(h.createdAt)}
+              </div>
+              <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{h.body}</p>
+            </Card>
+          ))}
+          {!notes.length ? <Empty>No handover notes yet.</Empty> : null}
+        </div>
+        <Card title="New handover">
+          <form
+            className="space-y-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void api("/handovers", {
+                method: "POST",
+                body: JSON.stringify({ ...form, departmentId }),
+              }).then(() => {
+                setForm({ title: "", body: "", shiftLabel: "" });
+                reload();
+              });
+            }}
+          >
+            <Input placeholder="Title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required />
+            <Input placeholder="Shift label" value={form.shiftLabel} onChange={(e) => setForm({ ...form, shiftLabel: e.target.value })} />
+            <Textarea rows={5} placeholder="What the next team needs to know" value={form.body} onChange={(e) => setForm({ ...form, body: e.target.value })} required />
+            <Button type="submit">Post note</Button>
+          </form>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+export function VendorsPage() {
   return (
     <SimpleCrudPage
-      title="Inventory"
-      subtitle="Assets and stock levels"
-      path="/inventory"
+      title="Vendors"
+      subtitle="Lightweight vendor / exhibitor contacts"
+      path="/vendors"
       fields={[
-        { key: "name", label: "Name", required: true },
-        { key: "quantity", label: "Quantity", type: "number" },
-        { key: "location", label: "Location" },
+        { key: "name", label: "Vendor name", required: true },
+        { key: "contactName", label: "Contact" },
+        { key: "contactEmail", label: "Email" },
+        { key: "booth", label: "Booth" },
       ]}
-      buildBody={(f) => ({
-        name: f.name,
-        quantity: Number(f.quantity || 0),
-        location: f.location,
-      })}
-      renderItem={(i) => (
+      buildBody={(f) => f}
+      renderItem={(v) => (
         <>
-          <div className="font-medium">{i.name}</div>
+          <div className="font-medium">{v.name}</div>
           <div className="text-xs text-slate-500">
-            Qty {i.quantity} · {i.location || "No location"}
+            {v.contactName || "—"} · {v.booth || "No booth"} · {v.contactEmail || ""}
           </div>
         </>
       )}
     />
+  );
+}
+
+export function MealsPage() {
+  return (
+    <SimpleCrudPage
+      title="Meals"
+      subtitle="Meal plans and dietary tracking"
+      path="/meals"
+      fields={[
+        { key: "name", label: "Meal name", required: true },
+        { key: "mealDate", label: "Date", type: "datetime-local", required: true },
+        { key: "notes", label: "Notes", type: "textarea" },
+      ]}
+      buildBody={(f) => f}
+      renderItem={(m) => (
+        <>
+          <div className="font-medium">{m.name}</div>
+          <div className="text-xs text-slate-500">
+            {formatDate(m.mealDate)} · {m.selections?.length || 0} selections
+          </div>
+        </>
+      )}
+    />
+  );
+}
+
+export function StaffDirectoryPage() {
+  const { data, error } = useLoad<any[]>("/staff-directory");
+  return (
+    <div>
+      <PageHeader
+        title="Staff & volunteer directory"
+        subtitle="Printable contact sheet (privacy-controlled fields require elevated access)"
+        actions={
+          <Button variant="secondary" onClick={() => window.print()}>
+            Print
+          </Button>
+        }
+      />
+      {error ? <Alert>{error}</Alert> : null}
+      <Card>
+        <table className="w-full text-left text-sm">
+          <thead>
+            <tr className="border-b text-xs text-slate-500">
+              <th className="py-2">Name</th>
+              <th>Role</th>
+              <th>Departments</th>
+              <th>Email</th>
+              <th>Phone</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(data || []).map((u) => (
+              <tr key={u.id} className="border-b border-slate-50">
+                <td className="py-2 font-medium">{u.name}</td>
+                <td>{u.role}</td>
+                <td>{u.departmentMembers?.map((m: any) => m.department.name).join(", ")}</td>
+                <td>{u.email}</td>
+                <td>{u.phone || "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Card>
+    </div>
+  );
+}
+
+export function AuditPage() {
+  const { data, error } = useLoad<any[]>("/audit");
+  return (
+    <div>
+      <PageHeader title="Audit log" subtitle="Comprehensive action history" />
+      {error ? <Alert>{error}</Alert> : null}
+      <div className="space-y-2">
+        {(data || []).map((a) => (
+          <Card key={a.id} className="!p-0">
+            <div className="px-4 py-3 text-sm">
+              <div className="font-medium">{a.action}</div>
+              <div className="text-xs text-slate-500">
+                {a.actor?.name || "System"} · {a.entityType} {a.entityId} · {formatDate(a.createdAt)}
+              </div>
+            </div>
+          </Card>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -1026,30 +1380,84 @@ export function OrdersPage() {
 }
 
 export function BudgetPage() {
+  const { data, error, reload } = useLoad<any[]>("/budget");
+  const [form, setForm] = useState({ label: "", amount: "", category: "" });
   return (
-    <SimpleCrudPage
-      title="Budget"
-      subtitle="Track operational spend"
-      path="/budget"
-      fields={[
-        { key: "label", label: "Label", required: true },
-        { key: "amount", label: "Amount", type: "number", required: true },
-        { key: "category", label: "Category" },
-      ]}
-      buildBody={(f) => ({
-        label: f.label,
-        amount: Number(f.amount),
-        category: f.category,
-      })}
-      renderItem={(b) => (
-        <>
-          <div className="font-medium">{b.label}</div>
-          <div className="text-xs text-slate-500">
-            ${Number(b.amount).toFixed(2)} · {b.category || "Uncategorized"} · {b.createdBy?.name}
-          </div>
-        </>
-      )}
-    />
+    <div>
+      <PageHeader title="Budget" subtitle="Line items with approval workflow" />
+      {error ? <Alert>{error}</Alert> : null}
+      <div className="grid gap-4 lg:grid-cols-3">
+        <div className="lg:col-span-2 space-y-3">
+          {(data || []).map((b) => (
+            <Card key={b.id} className="mb-3">
+              <div className="flex justify-between gap-2">
+                <div>
+                  <div className="font-medium">{b.label}</div>
+                  <div className="text-xs text-slate-500">
+                    ${Number(b.amount).toFixed(2)} · {b.category || "Uncategorized"} · {b.createdBy?.name}
+                  </div>
+                </div>
+                <Badge tone={b.status === "APPROVED" ? "green" : b.status === "REJECTED" ? "rose" : "amber"}>
+                  {b.status}
+                </Badge>
+              </div>
+              {b.status === "PENDING" ? (
+                <div className="mt-2 flex gap-2">
+                  <Button
+                    variant="secondary"
+                    className="!px-2 !py-1 text-xs"
+                    onClick={() =>
+                      void api(`/budget/${b.id}/status`, {
+                        method: "PATCH",
+                        body: JSON.stringify({ status: "APPROVED" }),
+                      }).then(reload)
+                    }
+                  >
+                    Approve
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    className="!px-2 !py-1 text-xs"
+                    onClick={() =>
+                      void api(`/budget/${b.id}/status`, {
+                        method: "PATCH",
+                        body: JSON.stringify({ status: "REJECTED" }),
+                      }).then(reload)
+                    }
+                  >
+                    Reject
+                  </Button>
+                </div>
+              ) : null}
+            </Card>
+          ))}
+        </div>
+        <Card title="New line item">
+          <form
+            className="space-y-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void api("/budget", {
+                method: "POST",
+                body: JSON.stringify({
+                  label: form.label,
+                  amount: Number(form.amount),
+                  category: form.category,
+                }),
+              }).then(() => {
+                setForm({ label: "", amount: "", category: "" });
+                reload();
+              });
+            }}
+          >
+            <Input placeholder="Label" value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} required />
+            <Input type="number" step="0.01" placeholder="Amount" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} required />
+            <Input placeholder="Category" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} />
+            <Button type="submit">Submit for approval</Button>
+          </form>
+        </Card>
+      </div>
+    </div>
   );
 }
 

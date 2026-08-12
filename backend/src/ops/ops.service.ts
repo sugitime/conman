@@ -155,6 +155,9 @@ export class OpsService {
       body: string;
       departmentId?: string;
       recipientIds?: string[];
+      targetRoles?: ("CON_MANAGER" | "DEPARTMENT_LEAD" | "VOLUNTEER" | "GUEST")[];
+      priority?: "NORMAL" | "CRITICAL";
+      requiresAck?: boolean;
       isPinned?: boolean;
     },
   ) {
@@ -164,19 +167,30 @@ export class OpsService {
         body: data.body,
         departmentId: data.departmentId,
         recipientIds: data.recipientIds || [],
+        targetRoles: data.targetRoles || [],
+        priority: data.priority || "NORMAL",
+        requiresAck: data.requiresAck ?? data.priority === "CRITICAL",
         isPinned: data.isPinned ?? false,
         authorId: user.id,
+        channels: ["IN_APP"],
       },
     });
   }
 
-  markCommRead(id: string, userId: string) {
+  markCommRead(id: string, userId: string, acknowledge = false) {
     return this.prisma.communicationRead.upsert({
       where: {
         communicationId_userId: { communicationId: id, userId },
       },
-      create: { communicationId: id, userId },
-      update: { readAt: new Date() },
+      create: {
+        communicationId: id,
+        userId,
+        acknowledgedAt: acknowledge ? new Date() : undefined,
+      },
+      update: {
+        readAt: new Date(),
+        acknowledgedAt: acknowledge ? new Date() : undefined,
+      },
     });
   }
 
@@ -223,6 +237,7 @@ export class OpsService {
       description: string;
       severity?: TicketSeverity;
       departmentId: string;
+      isIncident?: boolean;
     },
   ) {
     const dept = await this.prisma.department.findUnique({
@@ -240,6 +255,7 @@ export class OpsService {
         severity: data.severity || TicketSeverity.MEDIUM,
         departmentId: data.departmentId,
         createdById: user.id,
+        isIncident: data.isIncident ?? false,
       },
     });
   }
@@ -600,6 +616,8 @@ export class OpsService {
       description?: string;
       departmentId?: string;
       questions: unknown;
+      isTemplate?: boolean;
+      templateKey?: string;
     },
   ) {
     return this.prisma.survey.create({
@@ -608,21 +626,73 @@ export class OpsService {
         description: data.description,
         departmentId: data.departmentId,
         questions: data.questions as Prisma.InputJsonValue,
+        isTemplate: data.isTemplate ?? false,
+        templateKey: data.templateKey,
         createdById: userId,
       },
     });
   }
 
-  respondSurvey(surveyId: string, userId: string, answers: unknown) {
-    return this.prisma.surveyResponse.upsert({
-      where: { surveyId_userId: { surveyId, userId } },
-      create: {
+  async respondSurvey(
+    surveyId: string,
+    userId: string | null,
+    answers: unknown,
+    responder?: string,
+  ) {
+    return this.prisma.surveyResponse.create({
+      data: {
         surveyId,
-        userId,
+        userId: userId || undefined,
+        responder,
         answers: answers as Prisma.InputJsonValue,
       },
-      update: { answers: answers as Prisma.InputJsonValue },
     });
+  }
+
+  async getSurvey(id: string) {
+    return this.prisma.survey.findUnique({
+      where: { id },
+      include: {
+        createdBy: { select: { id: true, name: true } },
+        responses: {
+          orderBy: { createdAt: "desc" },
+          include: { user: { select: { id: true, name: true, email: true } } },
+        },
+        _count: { select: { responses: true } },
+      },
+    });
+  }
+
+  async exportSurvey(id: string, format: "csv" | "text" = "csv") {
+    const survey = await this.getSurvey(id);
+    if (!survey) throw new NotFoundException("Survey not found");
+    const questions = (survey.questions as { id: string; label: string }[]) || [];
+    if (format === "text") {
+      const blocks = (survey.responses || []).map((r, idx) => {
+        const answers = r.answers as Record<string, unknown>;
+        const lines = questions.map(
+          (q) => `${q.label}: ${JSON.stringify(answers[q.id] ?? "")}`,
+        );
+        return `Response #${idx + 1} (${r.user?.name || r.responder || "anon"})\n${lines.join("\n")}`;
+      });
+      return { format, content: blocks.join("\n\n---\n\n") };
+    }
+    const header = ["responseId", "user", "submittedAt", ...questions.map((q) => q.label)];
+    const rows = (survey.responses || []).map((r) => {
+      const answers = r.answers as Record<string, unknown>;
+      return [
+        r.id,
+        r.user?.email || r.responder || "",
+        r.createdAt.toISOString(),
+        ...questions.map((q) => {
+          const v = answers[q.id];
+          return typeof v === "string" ? v : JSON.stringify(v ?? "");
+        }),
+      ]
+        .map((c) => `"${String(c).replace(/"/g, '""')}"`)
+        .join(",");
+    });
+    return { format: "csv", content: [header.join(","), ...rows].join("\n") };
   }
 
   // ─── Handover ──────────────────────────────────────────────────
@@ -670,6 +740,7 @@ export class OpsService {
     endsAt: string;
     location?: string;
     slots?: number;
+    allowSelfSignup?: boolean;
   }) {
     return this.prisma.shift.create({
       data: {
@@ -680,50 +751,58 @@ export class OpsService {
         endsAt: new Date(data.endsAt),
         location: data.location,
         slots: data.slots ?? 1,
+        allowSelfSignup: data.allowSelfSignup ?? true,
       },
     });
   }
 
-  assignShift(shiftId: string, userId: string) {
+  async assignShift(shiftId: string, userId: string) {
+    const shift = await this.prisma.shift.findUnique({
+      where: { id: shiftId },
+      include: { assignments: true },
+    });
+    if (!shift) throw new NotFoundException("Shift not found");
+    if (shift.assignments.length >= shift.slots) {
+      throw new BadRequestException("Shift is full");
+    }
+    // Conflict: overlapping shifts
+    const conflict = await this.prisma.shiftAssignment.findFirst({
+      where: {
+        userId,
+        shift: {
+          startsAt: { lt: shift.endsAt },
+          endsAt: { gt: shift.startsAt },
+          id: { not: shiftId },
+        },
+      },
+      include: { shift: true },
+    });
+    if (conflict) {
+      throw new BadRequestException(
+        `Conflicts with shift "${conflict.shift.title}"`,
+      );
+    }
+    // Conflict: calendar events owned by user
+    const calConflict = await this.prisma.calendarEvent.findFirst({
+      where: {
+        ownerId: userId,
+        startsAt: { lt: shift.endsAt },
+        endsAt: { gt: shift.startsAt },
+      },
+    });
+    if (calConflict) {
+      throw new BadRequestException(
+        `Conflicts with calendar event "${calConflict.title}"`,
+      );
+    }
     return this.prisma.shiftAssignment.create({
       data: { shiftId, userId },
     });
   }
 
-  // ─── Inventory ─────────────────────────────────────────────────
-  listInventory(departmentId?: string) {
-    return this.prisma.inventoryItem.findMany({
-      where: departmentId ? { departmentId } : undefined,
-      orderBy: { name: "asc" },
-    });
-  }
-
-  createInventoryItem(data: {
-    name: string;
-    departmentId?: string;
-    sku?: string;
-    description?: string;
-    quantity?: number;
-    location?: string;
-  }) {
-    return this.prisma.inventoryItem.create({ data });
-  }
-
-  async adjustInventory(
-    itemId: string,
-    userId: string,
-    delta: number,
-    note?: string,
-  ) {
-    return this.prisma.$transaction(async (tx) => {
-      const item = await tx.inventoryItem.update({
-        where: { id: itemId },
-        data: { quantity: { increment: delta } },
-      });
-      await tx.inventoryLog.create({
-        data: { itemId, userId, delta, note },
-      });
-      return item;
+  unassignShift(shiftId: string, userId: string) {
+    return this.prisma.shiftAssignment.delete({
+      where: { shiftId_userId: { shiftId, userId } },
     });
   }
 
@@ -819,8 +898,20 @@ export class OpsService {
         departmentId: data.departmentId,
         category: data.category,
         notes: data.notes,
+        status: "PENDING",
         incurredAt: data.incurredAt ? new Date(data.incurredAt) : undefined,
         createdById: userId,
+      },
+    });
+  }
+
+  approveBudget(id: string, approverId: string, status: "APPROVED" | "REJECTED") {
+    return this.prisma.budgetEntry.update({
+      where: { id },
+      data: {
+        status,
+        approvedById: approverId,
+        approvedAt: new Date(),
       },
     });
   }
@@ -866,6 +957,9 @@ export class OpsService {
       description?: string;
       externalUrl?: string;
       file?: Express.Multer.File;
+      tags?: string[];
+      departmentId?: string;
+      eventLabel?: string;
     },
   ) {
     let url = data.externalUrl;
@@ -884,6 +978,9 @@ export class OpsService {
         url,
         filePath,
         mimeType,
+        tags: data.tags || [],
+        departmentId: data.departmentId,
+        eventLabel: data.eventLabel,
         uploadedById: userId,
       },
     });
@@ -1062,7 +1159,7 @@ export class OpsService {
     return this.prisma.room.create({ data });
   }
 
-  createBooking(
+  async createBooking(
     userId: string,
     data: {
       roomId: string;
@@ -1072,13 +1169,28 @@ export class OpsService {
       notes?: string;
     },
   ) {
+    const startsAt = new Date(data.startsAt);
+    const endsAt = new Date(data.endsAt);
+    const conflict = await this.prisma.roomBooking.findFirst({
+      where: {
+        roomId: data.roomId,
+        status: { in: ["REQUESTED", "APPROVED"] },
+        startsAt: { lt: endsAt },
+        endsAt: { gt: startsAt },
+      },
+    });
+    if (conflict) {
+      throw new BadRequestException(
+        `Room conflict with "${conflict.title}" (${conflict.status})`,
+      );
+    }
     return this.prisma.roomBooking.create({
       data: {
         roomId: data.roomId,
         userId,
         title: data.title,
-        startsAt: new Date(data.startsAt),
-        endsAt: new Date(data.endsAt),
+        startsAt,
+        endsAt,
         notes: data.notes,
       },
     });
@@ -1104,6 +1216,7 @@ export class OpsService {
     endsAt?: string;
     location?: string;
     departmentId?: string;
+    calendarEventId?: string;
     sortOrder?: number;
   }) {
     return this.prisma.runOfShowItem.create({
@@ -1114,10 +1227,192 @@ export class OpsService {
         endsAt: data.endsAt ? new Date(data.endsAt) : undefined,
         location: data.location,
         departmentId: data.departmentId,
+        calendarEventId: data.calendarEventId,
         sortOrder: data.sortOrder ?? 0,
       },
     });
   }
+
+  // ─── iCal export ───────────────────────────────────────────────
+  async exportIcal(user: AuthUser, departmentId?: string) {
+    const from = new Date();
+    from.setMonth(from.getMonth() - 1);
+    const to = new Date();
+    to.setMonth(to.getMonth() + 3);
+    const events = await this.listEvents(user, {
+      from: from.toISOString(),
+      to: to.toISOString(),
+    });
+    const filtered = departmentId
+      ? events.filter((e) => e.departmentId === departmentId || e.isMaster)
+      : events;
+    const lines = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//ConMan//EN",
+      "CALSCALE:GREGORIAN",
+    ];
+    for (const ev of filtered) {
+      const dt = (d: Date) =>
+        d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+      lines.push(
+        "BEGIN:VEVENT",
+        `UID:${ev.id}@conman`,
+        `DTSTAMP:${dt(new Date())}`,
+        `DTSTART:${dt(new Date(ev.startsAt))}`,
+        `DTEND:${dt(new Date(ev.endsAt))}`,
+        `SUMMARY:${(ev.title || "").replace(/\n/g, " ")}`,
+        ev.location ? `LOCATION:${ev.location.replace(/\n/g, " ")}` : "",
+        "END:VEVENT",
+      );
+    }
+    lines.push("END:VCALENDAR");
+    return lines.filter(Boolean).join("\r\n");
+  }
+
+  // ─── Vendors ───────────────────────────────────────────────────
+  listVendors() {
+    return this.prisma.vendor.findMany({ orderBy: { name: "asc" } });
+  }
+
+  createVendor(data: {
+    name: string;
+    contactName?: string;
+    contactEmail?: string;
+    contactPhone?: string;
+    booth?: string;
+    notes?: string;
+    departmentId?: string;
+  }) {
+    return this.prisma.vendor.create({ data });
+  }
+
+  // ─── Meals ─────────────────────────────────────────────────────
+  listMeals() {
+    return this.prisma.mealPlan.findMany({
+      orderBy: { mealDate: "asc" },
+      include: {
+        selections: {
+          include: { user: { select: { id: true, name: true, dietaryNotes: true } } },
+        },
+      },
+    });
+  }
+
+  createMeal(data: {
+    name: string;
+    mealDate: string;
+    departmentId?: string;
+    notes?: string;
+  }) {
+    return this.prisma.mealPlan.create({
+      data: {
+        name: data.name,
+        mealDate: new Date(data.mealDate),
+        departmentId: data.departmentId,
+        notes: data.notes,
+      },
+    });
+  }
+
+  selectMeal(
+    mealPlanId: string,
+    userId: string,
+    choice?: string,
+    dietaryNote?: string,
+  ) {
+    return this.prisma.mealSelection.upsert({
+      where: { mealPlanId_userId: { mealPlanId, userId } },
+      create: { mealPlanId, userId, choice, dietaryNote },
+      update: { choice, dietaryNote },
+    });
+  }
+
+  // ─── Kiosk check-in ────────────────────────────────────────────
+  async kioskCheckIn(opts: {
+    userId?: string;
+    email?: string;
+    badgeCode?: string;
+    method?: string;
+  }) {
+    let userId = opts.userId;
+    if (!userId && opts.email) {
+      const u = await this.prisma.user.findUnique({
+        where: { email: opts.email.toLowerCase() },
+      });
+      userId = u?.id;
+    }
+    if (!userId && opts.badgeCode) {
+      const badge = await this.prisma.badgeAssignment.findUnique({
+        where: { badgeCode: opts.badgeCode },
+      });
+      userId = badge?.userId;
+    }
+    if (!userId) throw new BadRequestException("User not found");
+
+    const open = await this.prisma.staffCheckIn.findFirst({
+      where: { userId, checkedOutAt: null },
+    });
+    if (open) {
+      return this.prisma.staffCheckIn.update({
+        where: { id: open.id },
+        data: { checkedOutAt: new Date() },
+        include: { user: { select: { id: true, name: true, email: true } } },
+      });
+    }
+    return this.prisma.staffCheckIn.create({
+      data: {
+        userId,
+        method: opts.method || "kiosk",
+      },
+      include: { user: { select: { id: true, name: true, email: true } } },
+    });
+  }
+
+  kioskStatus() {
+    return this.prisma.staffCheckIn.findMany({
+      where: { checkedOutAt: null },
+      include: { user: { select: { id: true, name: true, email: true, role: true } } },
+      orderBy: { checkedInAt: "desc" },
+    });
+  }
+
+  // ─── Badge print payload ───────────────────────────────────────
+  async badgePrintData(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        departmentMembers: {
+          include: { department: true },
+        },
+        badgeAssignments: { include: { badgeType: true } },
+      },
+    });
+    if (!user) throw new NotFoundException();
+    return {
+      name: user.name,
+      pronouns: user.pronouns,
+      role: user.role,
+      title: user.title,
+      departments: user.departmentMembers.map((m) => m.department.name),
+      badges: user.badgeAssignments.map((b) => ({
+        type: b.badgeType.name,
+        color: b.badgeType.color,
+        accessLevel: b.badgeType.accessLevel,
+        code: b.badgeCode,
+      })),
+    };
+  }
+
+  // ─── Audit ─────────────────────────────────────────────────────
+  listAudit(limit = 100) {
+    return this.prisma.auditLog.findMany({
+      take: limit,
+      orderBy: { createdAt: "desc" },
+      include: { actor: { select: { id: true, name: true, email: true } } },
+    });
+  }
+
 
   // ─── Notifications ─────────────────────────────────────────────
   listNotifications(userId: string) {
