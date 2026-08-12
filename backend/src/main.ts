@@ -25,7 +25,6 @@ function prepareDatabase() {
 }
 
 async function bootstrap() {
-  // Bind PORT quickly for Render health checks, then prepare DB.
   const app = await NestFactory.create(AppModule, { abortOnError: false });
   const origin = process.env.CORS_ORIGIN || "http://localhost:5173";
   app.enableCors({
@@ -45,8 +44,11 @@ async function bootstrap() {
   // eslint-disable-next-line no-console
   console.log(`ConMan API listening on :${port}`);
 
-  // Non-blocking schema apply + seed after listen
   setImmediate(() => prepareDatabase());
 }
 
-bootstrap();
+bootstrap().catch((err) => {
+  // eslint-disable-next-line no-console
+  console.error("Fatal bootstrap error:", err);
+  process.exit(1);
+});
