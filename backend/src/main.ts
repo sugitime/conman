@@ -21,14 +21,12 @@ function prepareDatabase() {
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error("Database prepare failed:", err);
-    // Continue — health endpoint can still come up if DB is later available
   }
 }
 
 async function bootstrap() {
-  prepareDatabase();
-
-  const app = await NestFactory.create(AppModule);
+  // Bind PORT quickly for Render health checks, then prepare DB.
+  const app = await NestFactory.create(AppModule, { abortOnError: false });
   const origin = process.env.CORS_ORIGIN || "http://localhost:5173";
   app.enableCors({
     origin: origin.split(",").map((s) => s.trim()),
@@ -46,6 +44,9 @@ async function bootstrap() {
   await app.listen(port, "0.0.0.0");
   // eslint-disable-next-line no-console
   console.log(`ConMan API listening on :${port}`);
+
+  // Non-blocking schema apply + seed after listen
+  setImmediate(() => prepareDatabase());
 }
 
 bootstrap();
