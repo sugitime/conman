@@ -10,12 +10,12 @@ databases:
 services:
   - type: web
     name: conman-api
-    runtime: docker
+    runtime: node
     plan: free
     region: oregon
     rootDir: backend
-    dockerfilePath: ./Dockerfile
-    dockerContext: .
+    buildCommand: npm install && npx prisma generate && npm run build
+    startCommand: npx prisma db push --accept-data-loss && npx tsx prisma/seed.ts; node dist/main.js
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
@@ -33,7 +33,7 @@ services:
       - key: APP_URL
         sync: false
       - key: UPLOAD_DIR
-        value: /app/uploads
+        value: /opt/render/project/src/backend/uploads
       - key: SEED_ADMIN_EMAIL
         value: admin@conman.local
       - key: SEED_ADMIN_PASSWORD
@@ -49,12 +49,8 @@ services:
     rootDir: frontend
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    # VITE_API_URL must be set to the public API origin after first deploy
-    # (e.g. https://conman-api.onrender.com) then redeploy web.
-    dockerBuildArgs:
-      - key: VITE_API_URL
-        # Placeholder — deploy script / dashboard should override with real API URL
-        value: https://conman-api.onrender.com
     envVars:
       - key: NODE_ENV
         value: production
+      - key: VITE_API_URL
+        value: https://conman-api.onrender.com
