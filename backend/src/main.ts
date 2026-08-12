@@ -4,27 +4,35 @@ import { execSync } from "child_process";
 import { AppModule } from "./app.module";
 
 function prepareDatabase() {
-  if (process.env.SKIP_DB_PREPARE === "1") return;
+  if (process.env.SKIP_DB_PREPARE === "1") {
+    console.log("SKIP_DB_PREPARE=1 — skipping schema/seed");
+    return;
+  }
+  // eslint-disable-next-line no-console
+  console.log("Preparing database schema...");
+  execSync("npx prisma db push --accept-data-loss", {
+    stdio: "inherit",
+    env: process.env,
+  });
   try {
     // eslint-disable-next-line no-console
-    console.log("Preparing database schema...");
-    execSync("npx prisma db push --accept-data-loss", {
-      stdio: "inherit",
-      env: process.env,
-    });
-    try {
-      execSync("npx tsx prisma/seed.ts", { stdio: "inherit", env: process.env });
-    } catch {
-      // eslint-disable-next-line no-console
-      console.warn("Seed skipped or failed (non-fatal)");
-    }
-  } catch (err) {
+    console.log("Seeding...");
+    execSync("npx tsx prisma/seed.ts", { stdio: "inherit", env: process.env });
+  } catch (e) {
     // eslint-disable-next-line no-console
-    console.error("Database prepare failed:", err);
+    console.warn("Seed skipped or failed (non-fatal)", e);
   }
 }
 
 async function bootstrap() {
+  // Ensure tables + seed exist before serving traffic
+  try {
+    prepareDatabase();
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error("Database prepare failed (continuing):", err);
+  }
+
   const app = await NestFactory.create(AppModule, { abortOnError: false });
   const origin = process.env.CORS_ORIGIN || "http://localhost:5173";
   app.enableCors({
@@ -43,8 +51,6 @@ async function bootstrap() {
   await app.listen(port, "0.0.0.0");
   // eslint-disable-next-line no-console
   console.log(`ConMan API listening on :${port}`);
-
-  setImmediate(() => prepareDatabase());
 }
 
 bootstrap().catch((err) => {
