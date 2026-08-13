@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -14,9 +15,16 @@ import { AuthUser } from "../common/decorators";
 export class DepartmentsService {
   constructor(private prisma: PrismaService) {}
 
-  list(user: AuthUser) {
+  list(user: AuthUser, conferenceId?: string | null) {
+    const confFilter = conferenceId
+      ? { conferenceId }
+      : user.conferenceId
+        ? { conferenceId: user.conferenceId }
+        : {};
+
     if (user.role === "CON_MANAGER") {
       return this.prisma.department.findMany({
+        where: confFilter,
         orderBy: { name: "asc" },
         include: {
           _count: { select: { members: true } },
@@ -24,7 +32,10 @@ export class DepartmentsService {
       });
     }
     return this.prisma.department.findMany({
-      where: { id: { in: user.departmentIds } },
+      where: {
+        ...confFilter,
+        id: { in: user.departmentIds },
+      },
       orderBy: { name: "asc" },
       include: {
         _count: { select: { members: true } },
@@ -62,16 +73,26 @@ export class DepartmentsService {
     };
   }
 
-  create(data: {
-    name: string;
-    description?: string;
-    color?: string;
-    isOrderingDept?: boolean;
-    helpdeskQueueAccess?: boolean;
-    features?: Record<string, boolean>;
-  }) {
+  create(
+    data: {
+      name: string;
+      description?: string;
+      color?: string;
+      isOrderingDept?: boolean;
+      helpdeskQueueAccess?: boolean;
+      features?: Record<string, boolean>;
+    },
+    conferenceId?: string | null,
+  ) {
+    const cid = conferenceId;
+    if (!cid) {
+      throw new BadRequestException(
+        "Select a conference (X-Conference-Id) before creating departments",
+      );
+    }
     return this.prisma.department.create({
       data: {
+        conferenceId: cid,
         name: data.name,
         description: data.description,
         color: data.color,
@@ -133,6 +154,27 @@ export class DepartmentsService {
     isLead = false,
   ) {
     this.assertCanManage(user, departmentId);
+    const dept = await this.prisma.department.findUnique({
+      where: { id: departmentId },
+    });
+    if (!dept) throw new NotFoundException();
+
+    // Keep conference membership in sync
+    await this.prisma.conferenceMember.upsert({
+      where: {
+        conferenceId_userId: {
+          conferenceId: dept.conferenceId,
+          userId: memberUserId,
+        },
+      },
+      create: {
+        conferenceId: dept.conferenceId,
+        userId: memberUserId,
+        role: isLead ? "DEPARTMENT_LEAD" : "VOLUNTEER",
+      },
+      update: {},
+    });
+
     return this.prisma.departmentMember.upsert({
       where: {
         departmentId_userId: { departmentId, userId: memberUserId },
@@ -155,17 +197,25 @@ export class DepartmentsService {
     });
   }
 
-  helpdeskDepartments() {
+  helpdeskDepartments(conferenceId?: string | null) {
     return this.prisma.department.findMany({
-      where: { helpdeskQueueAccess: true, isActive: true },
+      where: {
+        helpdeskQueueAccess: true,
+        isActive: true,
+        ...(conferenceId ? { conferenceId } : {}),
+      },
       select: { id: true, name: true, color: true },
       orderBy: { name: "asc" },
     });
   }
 
-  orderingDepartments() {
+  orderingDepartments(conferenceId?: string | null) {
     return this.prisma.department.findMany({
-      where: { isOrderingDept: true, isActive: true },
+      where: {
+        isOrderingDept: true,
+        isActive: true,
+        ...(conferenceId ? { conferenceId } : {}),
+      },
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     });

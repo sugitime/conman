@@ -102,16 +102,47 @@ export class FeatureGuard implements CanActivate {
     ]);
     if (!feature) return true;
 
-    const { user } = context.switchToHttp().getRequest<{ user?: AuthUser }>();
+    const req = context.switchToHttp().getRequest<{
+      user?: AuthUser;
+      conferenceId?: string | null;
+      headers: Record<string, string | string[] | undefined>;
+    }>();
+    const { user } = req;
     // Con managers can always access APIs (UI may still hide nav)
     if (user?.role === "CON_MANAGER") return true;
 
-    const settings = await this.prisma.appSettings.findUnique({
-      where: { id: "default" },
-    });
+    let featuresJson: unknown = null;
+    const raw = req.headers["x-conference-id"];
+    const headerId = Array.isArray(raw) ? raw[0] : raw;
+    const conferenceId =
+      req.conferenceId || user?.conferenceId || headerId || null;
+
+    if (conferenceId) {
+      const con = await this.prisma.conference.findUnique({
+        where: { id: conferenceId },
+        select: { globalFeatures: true },
+      });
+      featuresJson = con?.globalFeatures;
+    } else {
+      // Fallback: newest non-archived con features, then AppSettings
+      const con = await this.prisma.conference.findFirst({
+        where: { isArchived: false },
+        orderBy: { year: "desc" },
+        select: { globalFeatures: true },
+      });
+      if (con) {
+        featuresJson = con.globalFeatures;
+      } else {
+        const settings = await this.prisma.appSettings.findUnique({
+          where: { id: "default" },
+        });
+        featuresJson = settings?.globalFeatures;
+      }
+    }
+
     const map = {
       ...DEFAULT_GLOBAL_FEATURES,
-      ...((settings?.globalFeatures as Record<string, boolean>) || {}),
+      ...((featuresJson as Record<string, boolean>) || {}),
     };
     if (map[feature as GlobalFeature] === false) {
       throw new ForbiddenException(`Feature disabled: ${feature}`);

@@ -2,8 +2,19 @@ const API_BASE = import.meta.env.VITE_API_URL || "";
 
 export type ApiError = { message: string; status: number };
 
+const CONFERENCE_KEY = "conman_conference_id";
+
 function getToken() {
   return localStorage.getItem("conman_token");
+}
+
+export function getConferenceId() {
+  return localStorage.getItem(CONFERENCE_KEY);
+}
+
+export function setConferenceId(id: string | null) {
+  if (id) localStorage.setItem(CONFERENCE_KEY, id);
+  else localStorage.removeItem(CONFERENCE_KEY);
 }
 
 export async function api<T = unknown>(
@@ -16,6 +27,9 @@ export async function api<T = unknown>(
   }
   const token = getToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
+
+  const conId = getConferenceId();
+  if (conId) headers.set("X-Conference-Id", conId);
 
   const res = await fetch(`${API_BASE}/api${path}`, {
     ...options,

@@ -1,6 +1,6 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
-import { APP_GUARD } from "@nestjs/core";
+import { APP_GUARD, APP_INTERCEPTOR } from "@nestjs/core";
 import { ServeStaticModule } from "@nestjs/serve-static";
 import { join } from "path";
 import { PrismaModule } from "./prisma/prisma.module";
@@ -14,6 +14,8 @@ import { OpsModule } from "./ops/ops.module";
 import { InventoryModule } from "./inventory/inventory.module";
 import { ProfilesModule } from "./profiles/profiles.module";
 import { LoadScheduleModule } from "./load-schedule/load-schedule.module";
+import { ConferencesModule } from "./conferences/conferences.module";
+import { ConferenceContextInterceptor } from "./conferences/conference-context.interceptor";
 import { HealthController } from "./health.controller";
 import {
   FeatureGuard,
@@ -33,6 +35,7 @@ import {
     PrismaModule,
     MailModule,
     AuthModule,
+    ConferencesModule,
     UsersModule,
     PoliciesModule,
     SettingsModule,
@@ -48,6 +51,7 @@ import {
     { provide: APP_GUARD, useClass: RolesGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
     { provide: APP_GUARD, useClass: FeatureGuard },
+    { provide: APP_INTERCEPTOR, useClass: ConferenceContextInterceptor },
   ],
 })
 export class AppModule {}

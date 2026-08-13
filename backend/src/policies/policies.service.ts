@@ -6,8 +6,11 @@ import { PERMISSIONS } from "../common/permissions";
 export class PoliciesService {
   constructor(private prisma: PrismaService) {}
 
-  list() {
+  list(conferenceId?: string | null) {
     return this.prisma.accessPolicy.findMany({
+      where: conferenceId
+        ? { OR: [{ conferenceId }, { conferenceId: null }] }
+        : undefined,
       orderBy: { name: "asc" },
       include: {
         _count: { select: { assignments: true } },
@@ -34,8 +37,20 @@ export class PoliciesService {
     return policy;
   }
 
-  create(data: { name: string; description?: string; permissions: string[] }) {
-    return this.prisma.accessPolicy.create({ data });
+  create(
+    data: {
+      name: string;
+      description?: string;
+      permissions: string[];
+    },
+    conferenceId?: string | null,
+  ) {
+    return this.prisma.accessPolicy.create({
+      data: {
+        ...data,
+        conferenceId: conferenceId || null,
+      },
+    });
   }
 
   update(

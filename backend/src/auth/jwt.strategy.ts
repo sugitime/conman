@@ -26,7 +26,13 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       where: { id: payload.sub },
       include: {
         policyAssignments: { include: { policy: true } },
-        departmentMembers: true,
+        departmentMembers: {
+          include: { department: { select: { conferenceId: true } } },
+        },
+        conferenceMembers: {
+          where: { isActive: true },
+          select: { conferenceId: true, role: true },
+        },
       },
     });
     if (!user || !user.isActive) {
@@ -49,6 +55,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       leadDepartmentIds: user.departmentMembers
         .filter((m) => m.isLead)
         .map((m) => m.departmentId),
+      conferenceIds: user.conferenceMembers.map((m) => m.conferenceId),
     };
   }
 }

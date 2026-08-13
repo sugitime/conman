@@ -91,14 +91,17 @@ export function Card({
   className,
   title,
   action,
+  id,
 }: {
   children: ReactNode;
   className?: string;
   title?: string;
   action?: ReactNode;
+  id?: string;
 }) {
   return (
     <section
+      id={id}
       className={cn(
         "rounded-2xl border border-slate-200 bg-white shadow-sm",
         className,

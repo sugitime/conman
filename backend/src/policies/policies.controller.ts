@@ -9,7 +9,10 @@ import {
 } from "@nestjs/common";
 import { IsArray, IsOptional, IsString } from "class-validator";
 import { PoliciesService } from "./policies.service";
-import { RequirePermissions } from "../common/decorators";
+import {
+  CurrentConferenceId,
+  RequirePermissions,
+} from "../common/decorators";
 
 class PolicyDto {
   @IsString()
@@ -29,8 +32,8 @@ export class PoliciesController {
 
   @Get()
   @RequirePermissions("policies.manage")
-  list() {
-    return this.policies.list();
+  list(@CurrentConferenceId() conferenceId: string | null) {
+    return this.policies.list(conferenceId);
   }
 
   @Get("catalog")
@@ -47,8 +50,11 @@ export class PoliciesController {
 
   @Post()
   @RequirePermissions("policies.manage")
-  create(@Body() dto: PolicyDto) {
-    return this.policies.create(dto);
+  create(
+    @Body() dto: PolicyDto,
+    @CurrentConferenceId() conferenceId: string | null,
+  ) {
+    return this.policies.create(dto, conferenceId);
   }
 
   @Patch(":id")

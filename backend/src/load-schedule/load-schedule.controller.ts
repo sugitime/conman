@@ -12,6 +12,7 @@ import { LoadPhase, LoadTaskStatus } from "@prisma/client";
 import { LoadScheduleService } from "./load-schedule.service";
 import {
   AuthUser,
+  CurrentConferenceId,
   CurrentUser,
   RequireFeature,
 } from "../common/decorators";
@@ -24,22 +25,30 @@ export class LoadScheduleController {
   @Get()
   list(
     @CurrentUser() user: AuthUser,
+    @CurrentConferenceId() conferenceId: string | null,
     @Query("departmentId") departmentId?: string,
     @Query("phase") phase?: LoadPhase,
     @Query("from") from?: string,
     @Query("to") to?: string,
   ) {
-    return this.loadSchedule.list(user, { departmentId, phase, from, to });
+    return this.loadSchedule.list(user, {
+      departmentId,
+      phase,
+      from,
+      to,
+      conferenceId,
+    });
   }
 
   @Get("gantt")
   gantt(
     @CurrentUser() user: AuthUser,
+    @CurrentConferenceId() conferenceId: string | null,
     @Query("phase") phase?: LoadPhase,
     @Query("from") from?: string,
     @Query("to") to?: string,
   ) {
-    return this.loadSchedule.gantt(user, { phase, from, to });
+    return this.loadSchedule.gantt(user, { phase, from, to, conferenceId });
   }
 
   @Get(":id")

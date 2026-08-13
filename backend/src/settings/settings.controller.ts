@@ -8,7 +8,10 @@ import {
   IsString,
 } from "class-validator";
 import { SettingsService } from "./settings.service";
-import { RequirePermissions } from "../common/decorators";
+import {
+  CurrentConferenceId,
+  RequirePermissions,
+} from "../common/decorators";
 
 class UpdateSettingsDto {
   @IsOptional()
@@ -62,14 +65,17 @@ export class SettingsController {
   constructor(private settings: SettingsService) {}
 
   @Get()
-  get() {
-    return this.settings.get();
+  get(@CurrentConferenceId() conferenceId: string | null) {
+    return this.settings.get(conferenceId);
   }
 
   @Put()
   @RequirePermissions("settings.manage")
-  update(@Body() dto: UpdateSettingsDto) {
-    return this.settings.update(dto);
+  update(
+    @Body() dto: UpdateSettingsDto,
+    @CurrentConferenceId() conferenceId: string | null,
+  ) {
+    return this.settings.update(dto, conferenceId);
   }
 
   @Post("test-smtp")

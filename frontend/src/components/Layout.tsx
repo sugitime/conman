@@ -28,6 +28,7 @@ import {
   Sparkles,
   Flag,
   Truck,
+  Layers,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
@@ -353,6 +354,11 @@ const NAV_SECTIONS: NavSection[] = [
         icon: <Settings size={18} />,
         conManagerOnly: true,
       },
+      {
+        to: "/admin/conferences",
+        label: "Conferences",
+        icon: <Layers size={18} />,
+      },
     ],
   },
 ];
@@ -470,7 +476,16 @@ function AccordionSection({
 }
 
 export function Layout() {
-  const { user, settings, logout, isFeatureEnabled, isConManager } = useAuth();
+  const {
+    user,
+    settings,
+    logout,
+    isFeatureEnabled,
+    isConManager,
+    conferences,
+    activeConference,
+    switchConference,
+  } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -520,8 +535,36 @@ export function Layout() {
             ConMan
           </div>
           <div className="mt-1 truncate text-sm font-medium">
-            {settings?.conferenceName || "Conference Ops"}
+            {activeConference?.name ||
+              settings?.conferenceName ||
+              "Conference Ops"}
+            {activeConference?.year ? (
+              <span className="ml-1 text-slate-400">
+                {activeConference.year}
+              </span>
+            ) : null}
           </div>
+          {conferences.length > 0 ? (
+            <label className="mt-3 block">
+              <span className="sr-only">Active conference</span>
+              <select
+                className="w-full rounded-lg border border-white/10 bg-slate-900 px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-indigo-400"
+                value={activeConference?.id || ""}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  if (id) void switchConference(id).then(() => navigate("/"));
+                }}
+              >
+                {conferences.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                    {c.year ? ` (${c.year})` : ""}
+                    {c.isArchived ? " [archived]" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
         </div>
         <nav className="flex-1 overflow-y-auto px-2 py-3">
           {sections.map((section) => (

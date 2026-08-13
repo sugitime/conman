@@ -29,11 +29,22 @@ export type AuthUser = {
   permissions: string[];
   departmentIds: string[];
   leadDepartmentIds: string[];
+  /** Active conference from X-Conference-Id (set by interceptor) */
+  conferenceId?: string;
+  conferenceIds?: string[];
 };
 
 export const CurrentUser = createParamDecorator(
   (_data: unknown, ctx: ExecutionContext): AuthUser => {
     const request = ctx.switchToHttp().getRequest();
     return request.user;
+  },
+);
+
+/** Resolved conference id for the request (null if none) */
+export const CurrentConferenceId = createParamDecorator(
+  (_data: unknown, ctx: ExecutionContext): string | null => {
+    const request = ctx.switchToHttp().getRequest();
+    return request.conferenceId ?? request.user?.conferenceId ?? null;
   },
 );

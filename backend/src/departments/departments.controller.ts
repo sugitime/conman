@@ -16,6 +16,7 @@ import {
 import { DepartmentsService } from "./departments.service";
 import {
   AuthUser,
+  CurrentConferenceId,
   CurrentUser,
   RequirePermissions,
 } from "../common/decorators";
@@ -59,18 +60,21 @@ export class DepartmentsController {
   constructor(private departments: DepartmentsService) {}
 
   @Get()
-  list(@CurrentUser() user: AuthUser) {
-    return this.departments.list(user);
+  list(
+    @CurrentUser() user: AuthUser,
+    @CurrentConferenceId() conferenceId: string | null,
+  ) {
+    return this.departments.list(user, conferenceId);
   }
 
   @Get("helpdesk-queues")
-  helpdeskQueues() {
-    return this.departments.helpdeskDepartments();
+  helpdeskQueues(@CurrentConferenceId() conferenceId: string | null) {
+    return this.departments.helpdeskDepartments(conferenceId);
   }
 
   @Get("ordering")
-  ordering() {
-    return this.departments.orderingDepartments();
+  ordering(@CurrentConferenceId() conferenceId: string | null) {
+    return this.departments.orderingDepartments(conferenceId);
   }
 
   @Get(":id")
@@ -80,8 +84,11 @@ export class DepartmentsController {
 
   @Post()
   @RequirePermissions("departments.manage")
-  create(@Body() dto: DeptDto) {
-    return this.departments.create(dto);
+  create(
+    @Body() dto: DeptDto,
+    @CurrentConferenceId() conferenceId: string | null,
+  ) {
+    return this.departments.create(dto, conferenceId);
   }
 
   @Patch(":id")

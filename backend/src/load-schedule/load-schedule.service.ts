@@ -42,6 +42,7 @@ export class LoadScheduleService {
       phase?: LoadPhase;
       from?: string;
       to?: string;
+      conferenceId?: string | null;
     },
   ) {
     const where: Prisma.LoadScheduleTaskWhereInput = {};
@@ -53,6 +54,9 @@ export class LoadScheduleService {
       where.departmentId = opts.departmentId;
     } else if (user.role !== "CON_MANAGER" && !user.permissions.includes("load_schedule.view_all")) {
       where.departmentId = { in: user.departmentIds };
+    }
+    if (opts.conferenceId) {
+      where.department = { conferenceId: opts.conferenceId };
     }
     if (opts.from || opts.to) {
       where.AND = [
@@ -77,7 +81,12 @@ export class LoadScheduleService {
   /** Full gantt payload for Con Manager overview */
   async gantt(
     user: AuthUser,
-    opts: { phase?: LoadPhase; from?: string; to?: string },
+    opts: {
+      phase?: LoadPhase;
+      from?: string;
+      to?: string;
+      conferenceId?: string | null;
+    },
   ) {
     if (
       user.role !== "CON_MANAGER" &&
@@ -90,6 +99,7 @@ export class LoadScheduleService {
       phase: opts.phase,
       from: opts.from,
       to: opts.to,
+      conferenceId: opts.conferenceId,
     });
 
     const byDept = new Map<
