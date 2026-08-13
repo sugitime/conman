@@ -1407,6 +1407,182 @@ async function main() {
   }
   console.log("  ✓ media");
 
+  // ── Load In / Load Out schedule ──────────────────────────────
+  const loadInDay = new Date(daysFromNow(2, 6));
+  const loadOutDay = new Date(daysFromNow(5, 18));
+  const loadTasks: {
+    departmentId?: string;
+    phase: "LOAD_IN" | "LOAD_OUT";
+    title: string;
+    location?: string;
+    startsAt: string;
+    endsAt: string;
+    description?: string;
+  }[] = [
+    {
+      departmentId: noc?.id,
+      phase: "LOAD_IN",
+      title: "NOC fiber pull + core switch rack",
+      location: "NOC / Dock B",
+      startsAt: hoursFrom(loadInDay, 0),
+      endsAt: hoursFrom(loadInDay, 4),
+      description: "Primary uplink; coordinate with venue AV",
+    },
+    {
+      departmentId: noc?.id,
+      phase: "LOAD_IN",
+      title: "NOC Wi‑Fi AP hang",
+      location: "Halls A–C",
+      startsAt: hoursFrom(loadInDay, 4),
+      endsAt: hoursFrom(loadInDay, 8),
+    },
+    {
+      departmentId: qm?.id,
+      phase: "LOAD_IN",
+      title: "QM cage setup + radio staging",
+      location: "Quartermaster",
+      startsAt: hoursFrom(loadInDay, 1),
+      endsAt: hoursFrom(loadInDay, 5),
+    },
+    {
+      departmentId: dispatch?.id,
+      phase: "LOAD_IN",
+      title: "Dispatch desk build",
+      location: "Dispatch",
+      startsAt: hoursFrom(loadInDay, 2),
+      endsAt: hoursFrom(loadInDay, 6),
+    },
+    {
+      departmentId: speakerOps?.id,
+      phase: "LOAD_IN",
+      title: "Track 1 stage / FOH load-in",
+      location: "Track 1",
+      startsAt: hoursFrom(loadInDay, 3),
+      endsAt: hoursFrom(loadInDay, 9),
+    },
+    {
+      departmentId: villages?.id,
+      phase: "LOAD_IN",
+      title: "Village pipe & drape + power drops",
+      location: "Village halls",
+      startsAt: hoursFrom(loadInDay, 2),
+      endsAt: hoursFrom(loadInDay, 10),
+    },
+    {
+      departmentId: humanReg?.id,
+      phase: "LOAD_IN",
+      title: "Badge lines / printer setup",
+      location: "Human Registration",
+      startsAt: hoursFrom(loadInDay, 6),
+      endsAt: hoursFrom(loadInDay, 10),
+    },
+    {
+      departmentId: vendor?.id,
+      phase: "LOAD_IN",
+      title: "Vendor hall booth grid",
+      location: "Vendor hall",
+      startsAt: hoursFrom(loadInDay, 4),
+      endsAt: hoursFrom(loadInDay, 12),
+    },
+    {
+      departmentId: dctv?.id,
+      phase: "LOAD_IN",
+      title: "DCTV camera + encoder install",
+      location: "Track 1 / DCTV room",
+      startsAt: hoursFrom(loadInDay, 5),
+      endsAt: hoursFrom(loadInDay, 11),
+    },
+    {
+      departmentId: soc?.id,
+      phase: "LOAD_IN",
+      title: "SOC camera FOV + recording servers",
+      location: "SOC",
+      startsAt: hoursFrom(loadInDay, 3),
+      endsAt: hoursFrom(loadInDay, 7),
+    },
+    // Load-out
+    {
+      departmentId: speakerOps?.id,
+      phase: "LOAD_OUT",
+      title: "Track 1 strike FOH",
+      location: "Track 1",
+      startsAt: hoursFrom(loadOutDay, 0),
+      endsAt: hoursFrom(loadOutDay, 3),
+    },
+    {
+      departmentId: villages?.id,
+      phase: "LOAD_OUT",
+      title: "Village tear-down",
+      location: "Village halls",
+      startsAt: hoursFrom(loadOutDay, 0),
+      endsAt: hoursFrom(loadOutDay, 5),
+    },
+    {
+      departmentId: vendor?.id,
+      phase: "LOAD_OUT",
+      title: "Vendor hall clear",
+      location: "Vendor hall",
+      startsAt: hoursFrom(loadOutDay, 1),
+      endsAt: hoursFrom(loadOutDay, 4),
+    },
+    {
+      departmentId: noc?.id,
+      phase: "LOAD_OUT",
+      title: "NOC de-rack + fiber pull",
+      location: "NOC",
+      startsAt: hoursFrom(loadOutDay, 2),
+      endsAt: hoursFrom(loadOutDay, 6),
+    },
+    {
+      departmentId: qm?.id,
+      phase: "LOAD_OUT",
+      title: "Radio check-in & cage close",
+      location: "Quartermaster",
+      startsAt: hoursFrom(loadOutDay, 3),
+      endsAt: hoursFrom(loadOutDay, 7),
+    },
+    {
+      departmentId: dispatch?.id,
+      phase: "LOAD_OUT",
+      title: "Post equipment return",
+      location: "Dispatch",
+      startsAt: hoursFrom(loadOutDay, 4),
+      endsAt: hoursFrom(loadOutDay, 6),
+    },
+    {
+      departmentId: dctv?.id,
+      phase: "LOAD_OUT",
+      title: "DCTV pack-out",
+      location: "DCTV room",
+      startsAt: hoursFrom(loadOutDay, 1),
+      endsAt: hoursFrom(loadOutDay, 5),
+    },
+    {
+      departmentId: kevops?.id,
+      phase: "LOAD_OUT",
+      title: "Final walk / venue handback",
+      location: "KEVOPS",
+      startsAt: hoursFrom(loadOutDay, 6),
+      endsAt: hoursFrom(loadOutDay, 8),
+      description: "Confirm all depts cleared docks",
+    },
+  ];
+  let loadCreated = 0;
+  for (const t of loadTasks) {
+    if (!t.departmentId) continue;
+    try {
+      await api("/load-schedule", {
+        method: "POST",
+        token,
+        body: JSON.stringify(t),
+      });
+      loadCreated++;
+    } catch {
+      /* ignore */
+    }
+  }
+  console.log(`  ✓ load-in/out schedule (${loadCreated} tasks)`);
+
   // ── Con Bible ────────────────────────────────────────────────
   for (const p of [
     {

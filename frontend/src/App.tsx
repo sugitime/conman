@@ -37,6 +37,7 @@ import {
 import { InventoryPage, InventoryScanPage } from "@/pages/InventoryPage";
 import { ProfilePage } from "@/pages/ProfilePage";
 import { KioskPage } from "@/pages/KioskPage";
+import { LoadSchedulePage } from "@/pages/LoadSchedulePage";
 
 function Protected({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -77,6 +78,7 @@ export default function App() {
         <Route path="inventory" element={<InventoryPage />} />
         <Route path="inventory/scan" element={<InventoryScanPage />} />
         <Route path="orders" element={<OrdersPage />} />
+        <Route path="load-schedule" element={<LoadSchedulePage />} />
         <Route path="budget" element={<BudgetPage />} />
         <Route path="handovers" element={<HandoversPage />} />
         <Route path="org-chart" element={<OrgChartPage />} />

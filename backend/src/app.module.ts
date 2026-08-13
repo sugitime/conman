@@ -13,6 +13,7 @@ import { DepartmentsModule } from "./departments/departments.module";
 import { OpsModule } from "./ops/ops.module";
 import { InventoryModule } from "./inventory/inventory.module";
 import { ProfilesModule } from "./profiles/profiles.module";
+import { LoadScheduleModule } from "./load-schedule/load-schedule.module";
 import { HealthController } from "./health.controller";
 import {
   FeatureGuard,
@@ -38,6 +39,7 @@ import {
     DepartmentsModule,
     InventoryModule,
     ProfilesModule,
+    LoadScheduleModule,
     OpsModule,
   ],
   controllers: [HealthController],

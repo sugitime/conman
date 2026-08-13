@@ -27,6 +27,7 @@ import {
   Clock,
   Sparkles,
   Flag,
+  Truck,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
@@ -101,6 +102,12 @@ const NAV_SECTIONS: NavSection[] = [
         label: "Orders",
         icon: <Package size={18} />,
         feature: "item_orders",
+      },
+      {
+        to: "/load-schedule",
+        label: "Load In schedule",
+        icon: <Truck size={18} />,
+        feature: "load_schedule",
       },
       {
         to: "/budget",
@@ -249,6 +256,12 @@ const NAV_SECTIONS: NavSection[] = [
         icon: <ScrollText size={18} />,
         feature: "run_of_show",
       },
+      {
+        to: "/load-schedule",
+        label: "Load schedule",
+        icon: <Truck size={18} />,
+        feature: "load_schedule",
+      },
     ],
   },
   {
@@ -263,6 +276,12 @@ const NAV_SECTIONS: NavSection[] = [
         label: "Surveys / AAR",
         icon: <ClipboardList size={18} />,
         feature: "surveys",
+      },
+      {
+        to: "/load-schedule",
+        label: "Load Out schedule",
+        icon: <Truck size={18} />,
+        feature: "load_schedule",
       },
       {
         to: "/budget",

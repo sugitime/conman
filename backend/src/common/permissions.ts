@@ -41,6 +41,8 @@ export const PERMISSIONS = [
   "oncall.manage",
   "rooms.manage",
   "runofshow.manage",
+  "load_schedule.manage",
+  "load_schedule.view_all",
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -72,6 +74,7 @@ export const GLOBAL_FEATURES = [
   "staff_lists",
   "audit_log",
   "schedule_publishing",
+  "load_schedule",
 ] as const;
 
 export type GlobalFeature = (typeof GLOBAL_FEATURES)[number];
@@ -89,6 +92,7 @@ export const DEPARTMENT_FEATURES = [
   "run_of_show",
   "budget",
   "item_orders",
+  "load_schedule",
 ] as const;
 
 export type DepartmentFeature = (typeof DEPARTMENT_FEATURES)[number];
@@ -124,6 +128,7 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     "orders.fulfill",
     "budget.manage",
     "runofshow.manage",
+    "load_schedule.manage",
     "meals.manage",
     "stafflists.print",
   ],
@@ -132,6 +137,7 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     "calendar.overlay_request",
     "documents.manage",
     "inventory.checkout",
+    "load_schedule.manage",
   ],
   GUEST: ["documents.manage"],
 };

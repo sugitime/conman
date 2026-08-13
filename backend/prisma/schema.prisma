@@ -96,6 +96,8 @@ model User {
   staffCheckIns       StaffCheckIn[]
   mealSelections      MealSelection[]
   vendorsManaged      Vendor[]                 @relation("VendorContact")
+  loadTasksCreated    LoadScheduleTask[]       @relation("LoadTasksCreated")
+  loadTasksAssigned   LoadScheduleTask[]       @relation("LoadTasksAssigned")
 
   @@index([role])
   @@index([isActive])
@@ -208,6 +210,7 @@ model Department {
   vendors         Vendor[]
   mealPlans       MealPlan[]
   publishedSchedules PublishedSchedule[]
+  loadScheduleTasks  LoadScheduleTask[]
 }
 
 model DepartmentMember {
@@ -883,6 +886,47 @@ model RoomBooking {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([roomId, startsAt, endsAt])
+}
+
+// ─── Load In / Load Out Schedule ─────────────────────────────────
+
+enum LoadPhase {
+  LOAD_IN
+  LOAD_OUT
+}
+
+enum LoadTaskStatus {
+  PLANNED
+  IN_PROGRESS
+  DONE
+  BLOCKED
+  CANCELLED
+}
+
+model LoadScheduleTask {
+  id           String         @id @default(cuid())
+  departmentId String
+  phase        LoadPhase
+  title        String
+  description  String?
+  location     String?
+  startsAt     DateTime
+  endsAt       DateTime
+  status       LoadTaskStatus @default(PLANNED)
+  sortOrder    Int            @default(0)
+  createdById  String
+  assigneeId   String?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  createdBy  User       @relation("LoadTasksCreated", fields: [createdById], references: [id], onDelete: Cascade)
+  assignee   User?      @relation("LoadTasksAssigned", fields: [assigneeId], references: [id], onDelete: SetNull)
+
+  @@index([departmentId, phase])
+  @@index([startsAt, endsAt])
+  @@index([phase, startsAt])
+  @@index([status])
 }
 
 // ─── Run of Show ─────────────────────────────────────────────────
