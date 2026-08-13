@@ -22,12 +22,14 @@ import { extname, join } from "path";
 import { mkdir, writeFile } from "fs/promises";
 import { randomUUID } from "crypto";
 import { ConfigService } from "@nestjs/config";
+import { NotificationsService } from "../notifications/notifications.service";
 
 @Injectable()
 export class OpsService {
   constructor(
     private prisma: PrismaService,
     private config: ConfigService,
+    private notifications: NotificationsService,
   ) {}
 
   // ─── Todos ─────────────────────────────────────────────────────
@@ -54,7 +56,25 @@ export class OpsService {
     });
   }
 
-  createTodo(
+  async getTodo(id: string, user: AuthUser) {
+    const todo = await this.prisma.todo.findUnique({
+      where: { id },
+      include: {
+        assignee: { select: { id: true, name: true, email: true } },
+        createdBy: { select: { id: true, name: true, email: true } },
+        department: { select: { id: true, name: true, color: true } },
+      },
+    });
+    if (!todo) throw new NotFoundException("Todo not found");
+    this.assertCanViewTodo(user, todo);
+    const [messages, activity] = await Promise.all([
+      this.notifications.listComments("TODO", id),
+      this.notifications.listActivity("TODO", id),
+    ]);
+    return { ...todo, messages, activity };
+  }
+
+  async createTodo(
     user: AuthUser,
     data: {
       title: string;
@@ -71,13 +91,12 @@ export class OpsService {
         !user.leadDepartmentIds.includes(data.departmentId) &&
         !user.permissions.includes("todos.any")
       ) {
-        // volunteers can create personal todos only
         if (data.assigneeId && data.assigneeId !== user.id) {
           throw new ForbiddenException();
         }
       }
     }
-    return this.prisma.todo.create({
+    const todo = await this.prisma.todo.create({
       data: {
         title: data.title,
         description: data.description,
@@ -87,11 +106,37 @@ export class OpsService {
         assigneeId: data.assigneeId,
         createdById: user.id,
       },
+      include: {
+        assignee: { select: { id: true, name: true } },
+        createdBy: { select: { id: true, name: true } },
+        department: { select: { id: true, name: true } },
+      },
     });
+    await this.notifications.logActivity({
+      entityType: "TODO",
+      entityId: todo.id,
+      actorId: user.id,
+      action: "created",
+      summary: `${user.name} created todo “${todo.title}”`,
+    });
+    if (todo.assigneeId) {
+      await this.notifications.notifyUsers({
+        userIds: [todo.assigneeId],
+        eventKey: "todo.assigned",
+        title: "Todo assigned to you",
+        body: todo.title,
+        href: `/todos?open=${todo.id}`,
+        entityType: "TODO",
+        entityId: todo.id,
+        skipUserId: user.id,
+      });
+    }
+    return todo;
   }
 
-  updateTodo(
+  async updateTodo(
     id: string,
+    user: AuthUser,
     data: Partial<{
       title: string;
       description: string;
@@ -99,9 +144,14 @@ export class OpsService {
       priority: TodoPriority;
       dueAt: string | null;
       assigneeId: string | null;
+      departmentId: string | null;
     }>,
   ) {
-    return this.prisma.todo.update({
+    const existing = await this.prisma.todo.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException("Todo not found");
+    this.assertCanViewTodo(user, existing);
+
+    const updated = await this.prisma.todo.update({
       where: { id },
       data: {
         title: data.title,
@@ -115,8 +165,113 @@ export class OpsService {
               ? new Date(data.dueAt)
               : undefined,
         assigneeId: data.assigneeId,
+        departmentId:
+          data.departmentId === undefined ? undefined : data.departmentId,
+      },
+      include: {
+        assignee: { select: { id: true, name: true } },
+        createdBy: { select: { id: true, name: true } },
+        department: { select: { id: true, name: true } },
       },
     });
+
+    const changes = this.notifications.diffFields(
+      existing as unknown as Record<string, unknown>,
+      {
+        ...existing,
+        ...data,
+        dueAt:
+          data.dueAt === null
+            ? null
+            : data.dueAt
+              ? new Date(data.dueAt)
+              : existing.dueAt,
+      } as unknown as Record<string, unknown>,
+      ["title", "description", "status", "priority", "dueAt", "assigneeId", "departmentId"],
+    );
+
+    if (changes) {
+      await this.notifications.logActivity({
+        entityType: "TODO",
+        entityId: id,
+        actorId: user.id,
+        action: changes.status ? "status_changed" : "updated",
+        summary: `${user.name} updated todo “${updated.title}”`,
+        changes,
+      });
+
+      const watchers = [existing.createdById, existing.assigneeId, updated.assigneeId].filter(
+        Boolean,
+      ) as string[];
+
+      if (changes.assigneeId && updated.assigneeId) {
+        await this.notifications.notifyUsers({
+          userIds: [updated.assigneeId],
+          eventKey: "todo.assigned",
+          title: "Todo assigned to you",
+          body: updated.title,
+          href: `/todos?open=${id}`,
+          entityType: "TODO",
+          entityId: id,
+          skipUserId: user.id,
+        });
+      }
+
+      await this.notifications.notifyUsers({
+        userIds: watchers,
+        eventKey: "todo.updated",
+        title: "Todo updated",
+        body: `${user.name}: ${updated.title}`,
+        href: `/todos?open=${id}`,
+        entityType: "TODO",
+        entityId: id,
+        skipUserId: user.id,
+      });
+    }
+
+    return updated;
+  }
+
+  async addTodoComment(id: string, user: AuthUser, body: string) {
+    const todo = await this.prisma.todo.findUnique({ where: { id } });
+    if (!todo) throw new NotFoundException("Todo not found");
+    this.assertCanViewTodo(user, todo);
+    if (!body?.trim()) throw new BadRequestException("Message required");
+
+    const comment = await this.notifications.addComment({
+      entityType: "TODO",
+      entityId: id,
+      authorId: user.id,
+      body,
+    });
+    await this.notifications.logActivity({
+      entityType: "TODO",
+      entityId: id,
+      actorId: user.id,
+      action: "commented",
+      summary: `${user.name} left a message`,
+    });
+    await this.notifications.notifyUsers({
+      userIds: [todo.createdById, todo.assigneeId].filter(Boolean) as string[],
+      eventKey: "todo.comment",
+      title: "New message on todo",
+      body: `${user.name}: ${body.slice(0, 140)}`,
+      href: `/todos?open=${id}`,
+      entityType: "TODO",
+      entityId: id,
+      skipUserId: user.id,
+    });
+    return comment;
+  }
+
+  private assertCanViewTodo(
+    user: AuthUser,
+    todo: { createdById: string; assigneeId: string | null; departmentId: string | null },
+  ) {
+    if (user.role === "CON_MANAGER" || user.permissions.includes("todos.any")) return;
+    if (todo.createdById === user.id || todo.assigneeId === user.id) return;
+    if (todo.departmentId && user.departmentIds.includes(todo.departmentId)) return;
+    throw new ForbiddenException();
   }
 
   // ─── Communications ────────────────────────────────────────────
@@ -248,7 +403,7 @@ export class OpsService {
         "Department does not accept helpdesk tickets",
       );
     }
-    return this.prisma.helpdeskTicket.create({
+    const ticket = await this.prisma.helpdeskTicket.create({
       data: {
         title: data.title,
         description: data.description,
@@ -257,11 +412,25 @@ export class OpsService {
         createdById: user.id,
         isIncident: data.isIncident ?? false,
       },
+      include: {
+        department: { select: { id: true, name: true, color: true } },
+        createdBy: { select: { id: true, name: true } },
+        assignee: { select: { id: true, name: true } },
+      },
     });
+    await this.notifications.logActivity({
+      entityType: "HELPDESK",
+      entityId: ticket.id,
+      actorId: user.id,
+      action: "created",
+      summary: `${user.name} opened ticket “${ticket.title}”`,
+    });
+    return ticket;
   }
 
-  updateTicket(
+  async updateTicket(
     id: string,
+    user: AuthUser,
     data: Partial<{
       status: TicketStatus;
       severity: TicketSeverity;
@@ -270,7 +439,12 @@ export class OpsService {
       description: string;
     }>,
   ) {
-    return this.prisma.helpdeskTicket.update({
+    const existing = await this.prisma.helpdeskTicket.findUnique({
+      where: { id },
+    });
+    if (!existing) throw new NotFoundException("Ticket not found");
+
+    const updated = await this.prisma.helpdeskTicket.update({
       where: { id },
       data: {
         ...data,
@@ -279,14 +453,85 @@ export class OpsService {
             ? new Date()
             : undefined,
       },
+      include: {
+        department: { select: { id: true, name: true, color: true } },
+        createdBy: { select: { id: true, name: true } },
+        assignee: { select: { id: true, name: true } },
+      },
     });
+
+    const changes = this.notifications.diffFields(
+      existing as unknown as Record<string, unknown>,
+      { ...existing, ...data } as unknown as Record<string, unknown>,
+      ["title", "description", "status", "severity", "assigneeId"],
+    );
+
+    if (changes) {
+      await this.notifications.logActivity({
+        entityType: "HELPDESK",
+        entityId: id,
+        actorId: user.id,
+        action: changes.status
+          ? "status_changed"
+          : changes.severity
+            ? "severity_changed"
+            : "updated",
+        summary: `${user.name} updated ticket “${updated.title}”`,
+        changes,
+      });
+
+      const watchers = [
+        existing.createdById,
+        existing.assigneeId,
+        updated.assigneeId,
+      ].filter(Boolean) as string[];
+
+      if (changes.assigneeId && updated.assigneeId) {
+        await this.notifications.notifyUsers({
+          userIds: [updated.assigneeId],
+          eventKey: "ticket.assigned",
+          title: "Ticket assigned to you",
+          body: updated.title,
+          href: `/helpdesk?open=${id}`,
+          entityType: "HELPDESK",
+          entityId: id,
+          skipUserId: user.id,
+        });
+      }
+
+      if (changes.severity) {
+        await this.notifications.notifyUsers({
+          userIds: watchers,
+          eventKey: "ticket.severity",
+          title: "Ticket severity changed",
+          body: `${updated.title}: ${String(changes.severity.from)} → ${String(changes.severity.to)}`,
+          href: `/helpdesk?open=${id}`,
+          entityType: "HELPDESK",
+          entityId: id,
+          skipUserId: user.id,
+        });
+      }
+
+      await this.notifications.notifyUsers({
+        userIds: watchers,
+        eventKey: "ticket.updated",
+        title: "Helpdesk ticket updated",
+        body: `${user.name}: ${updated.title}`,
+        href: `/helpdesk?open=${id}`,
+        entityType: "HELPDESK",
+        entityId: id,
+        skipUserId: user.id,
+      });
+    }
+
+    return updated;
   }
 
-  getTicket(id: string) {
-    return this.prisma.helpdeskTicket.findUnique({
+  async getTicket(id: string) {
+    const ticket = await this.prisma.helpdeskTicket.findUnique({
       where: { id },
       include: {
-        department: true,
+        department: { select: { id: true, name: true, color: true } },
         createdBy: { select: { id: true, name: true, email: true } },
         assignee: { select: { id: true, name: true } },
         comments: {
@@ -295,17 +540,75 @@ export class OpsService {
         },
       },
     });
+    if (!ticket) throw new NotFoundException("Ticket not found");
+    const [entityMessages, activity] = await Promise.all([
+      this.notifications.listComments("HELPDESK", id),
+      this.notifications.listActivity("HELPDESK", id),
+    ]);
+    // Merge legacy HelpdeskComment + EntityComment into messages
+    const messages = [
+      ...ticket.comments.map((c) => ({
+        id: c.id,
+        body: c.body,
+        isInternal: c.isInternal,
+        createdAt: c.createdAt,
+        author: c.author,
+        source: "helpdesk" as const,
+      })),
+      ...entityMessages.map((c) => ({
+        id: c.id,
+        body: c.body,
+        isInternal: c.isInternal,
+        createdAt: c.createdAt,
+        author: c.author,
+        source: "entity" as const,
+      })),
+    ].sort(
+      (a, b) =>
+        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+    );
+    return { ...ticket, messages, activity };
   }
 
-  addTicketComment(
+  async addTicketComment(
     ticketId: string,
-    userId: string,
+    user: AuthUser,
     body: string,
     isInternal = false,
   ) {
-    return this.prisma.helpdeskComment.create({
-      data: { ticketId, authorId: userId, body, isInternal },
+    if (!body?.trim()) throw new BadRequestException("Message required");
+    const ticket = await this.prisma.helpdeskTicket.findUnique({
+      where: { id: ticketId },
     });
+    if (!ticket) throw new NotFoundException("Ticket not found");
+
+    const comment = await this.prisma.helpdeskComment.create({
+      data: {
+        ticketId,
+        authorId: user.id,
+        body: body.trim(),
+        isInternal,
+      },
+      include: { author: { select: { id: true, name: true } } },
+    });
+    await this.notifications.logActivity({
+      entityType: "HELPDESK",
+      entityId: ticketId,
+      actorId: user.id,
+      action: "commented",
+      summary: `${user.name} left a message${isInternal ? " (internal)" : ""}`,
+    });
+    await this.notifications.notifyUsers({
+      userIds: [ticket.createdById, ticket.assigneeId].filter(Boolean) as string[],
+      eventKey: "ticket.comment",
+      title: "New message on ticket",
+      body: `${user.name}: ${body.slice(0, 140)}`,
+      href: `/helpdesk?open=${ticketId}`,
+      entityType: "HELPDESK",
+      entityId: ticketId,
+      skipUserId: user.id,
+    });
+    return comment;
   }
 
   // ─── Calendar ──────────────────────────────────────────────────

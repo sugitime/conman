@@ -14,6 +14,7 @@ import {
   Select,
   Textarea,
 } from "@/components/ui";
+import { EntityDetailModal } from "@/components/EntityDetailModal";
 import { formatDate } from "@/lib/utils";
 
 function useLoad<T>(path: string, deps: unknown[] = []) {
@@ -258,6 +259,7 @@ export function HelpdeskPage() {
   const path = master ? "/helpdesk?master=1" : "/helpdesk";
   const { data, error, reload } = useLoad<any[]>(path, [master]);
   const queues = useLoad<{ id: string; name: string }[]>("/departments/helpdesk-queues");
+  const depts = useLoad<{ id: string; name: string }[]>("/departments");
   const [form, setForm] = useState({
     title: "",
     description: "",
@@ -265,6 +267,12 @@ export function HelpdeskPage() {
     departmentId: "",
     isIncident: false,
   });
+  const [openId, setOpenId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get("open");
+    if (q) setOpenId(q);
+  }, []);
 
   async function create(e: FormEvent) {
     e.preventDefault();
@@ -277,7 +285,7 @@ export function HelpdeskPage() {
     <div>
       <PageHeader
         title="Helpdesk"
-        subtitle="Tickets with severity and department queues"
+        subtitle="Tickets with severity and department queues — click a ticket to open details"
         actions={
           isConManager ? (
             <Button variant={master ? "primary" : "secondary"} onClick={() => setMaster((m) => !m)}>
@@ -290,12 +298,17 @@ export function HelpdeskPage() {
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="space-y-3 lg:col-span-2">
           {(data || []).map((t) => (
-            <Card key={t.id} className="mb-3">
+            <Card
+              key={t.id}
+              className="mb-3 cursor-pointer transition hover:border-indigo-200 hover:shadow-md"
+              onClick={() => setOpenId(t.id)}
+            >
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
-                  <div className="font-medium">{t.title}</div>
+                  <div className="font-medium text-indigo-700">{t.title}</div>
                   <div className="mt-1 text-xs text-slate-500">
                     {t.department?.name} · {t.createdBy?.name} · {formatDate(t.createdAt)}
+                    {t._count?.comments ? ` · ${t._count.comments} msgs` : ""}
                   </div>
                 </div>
                 <div className="flex gap-2">
@@ -313,24 +326,8 @@ export function HelpdeskPage() {
                   <Badge tone="sky">{t.status}</Badge>
                 </div>
               </div>
-              <p className="mt-3 text-sm text-slate-600">{t.description}</p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {["OPEN", "IN_PROGRESS", "WAITING", "RESOLVED", "CLOSED"].map((s) => (
-                  <Button
-                    key={s}
-                    variant="secondary"
-                    className="!px-2 !py-1 text-xs"
-                    onClick={() =>
-                      void api(`/helpdesk/${t.id}`, {
-                        method: "PATCH",
-                        body: JSON.stringify({ status: s }),
-                      }).then(reload)
-                    }
-                  >
-                    {s}
-                  </Button>
-                ))}
-              </div>
+              <p className="mt-3 line-clamp-2 text-sm text-slate-600">{t.description}</p>
+              <p className="mt-2 text-xs text-indigo-600">Click to edit · messages · change log</p>
             </Card>
           ))}
           {!data?.length ? <Empty>No tickets.</Empty> : null}
@@ -394,14 +391,29 @@ export function HelpdeskPage() {
           </form>
         </Card>
       </div>
+      <EntityDetailModal
+        kind="helpdesk"
+        id={openId}
+        open={!!openId}
+        onClose={() => setOpenId(null)}
+        onSaved={reload}
+        departments={depts.data || queues.data || []}
+      />
     </div>
   );
 }
 
 export function TodosPage() {
   const { data, error, reload } = useLoad<any[]>("/todos");
+  const depts = useLoad<{ id: string; name: string }[]>("/departments");
   const [title, setTitle] = useState("");
   const [priority, setPriority] = useState("MEDIUM");
+  const [openId, setOpenId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get("open");
+    if (q) setOpenId(q);
+  }, []);
 
   async function create(e: FormEvent) {
     e.preventDefault();
@@ -415,15 +427,22 @@ export function TodosPage() {
 
   return (
     <div>
-      <PageHeader title="Todos" subtitle="Track work across departments and people" />
+      <PageHeader
+        title="Todos"
+        subtitle="Track work across departments and people — click a todo to open details"
+      />
       {error ? <Alert>{error}</Alert> : null}
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="space-y-3 lg:col-span-2">
           {(data || []).map((t) => (
-            <Card key={t.id} className="mb-3">
+            <Card
+              key={t.id}
+              className="mb-3 cursor-pointer transition hover:border-indigo-200 hover:shadow-md"
+              onClick={() => setOpenId(t.id)}
+            >
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <div className="font-medium">{t.title}</div>
+                  <div className="font-medium text-indigo-700">{t.title}</div>
                   <div className="text-xs text-slate-500">
                     {t.assignee?.name || "Unassigned"} · {t.department?.name || "Personal"}
                   </div>
@@ -433,25 +452,10 @@ export function TodosPage() {
                   <Badge tone={t.status === "DONE" ? "green" : "amber"}>{t.status}</Badge>
                 </div>
               </div>
-              <div className="mt-3 flex gap-2">
-                {["OPEN", "IN_PROGRESS", "DONE", "CANCELLED"].map((s) => (
-                  <Button
-                    key={s}
-                    variant="secondary"
-                    className="!px-2 !py-1 text-xs"
-                    onClick={() =>
-                      void api(`/todos/${t.id}`, {
-                        method: "PATCH",
-                        body: JSON.stringify({ status: s }),
-                      }).then(reload)
-                    }
-                  >
-                    {s}
-                  </Button>
-                ))}
-              </div>
+              <p className="mt-2 text-xs text-indigo-600">Click to edit · messages · change log</p>
             </Card>
           ))}
+          {!data?.length ? <Empty>No todos yet.</Empty> : null}
         </div>
         <Card title="New todo">
           <form className="space-y-3" onSubmit={create}>
@@ -471,6 +475,14 @@ export function TodosPage() {
           </form>
         </Card>
       </div>
+      <EntityDetailModal
+        kind="todo"
+        id={openId}
+        open={!!openId}
+        onClose={() => setOpenId(null)}
+        onSaved={reload}
+        departments={depts.data || []}
+      />
     </div>
   );
 }

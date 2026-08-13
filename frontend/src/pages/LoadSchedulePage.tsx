@@ -15,6 +15,7 @@ import {
 } from "@/components/ui";
 import { formatDate } from "@/lib/utils";
 import { cn } from "@/lib/utils";
+import { EntityDetailModal } from "@/components/EntityDetailModal";
 
 type Phase = "LOAD_IN" | "LOAD_OUT";
 type Status = "PLANNED" | "IN_PROGRESS" | "DONE" | "BLOCKED" | "CANCELLED";
@@ -228,6 +229,7 @@ export function LoadSchedulePage() {
   const [gantt, setGantt] = useState<GanttPayload | null>(null);
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
+  const [openId, setOpenId] = useState<string | null>(null);
   const [formPhase, setFormPhase] = useState<Phase>("LOAD_IN");
   const defaults = defaultWindow("LOAD_IN");
   const [form, setForm] = useState({
@@ -244,6 +246,11 @@ export function LoadSchedulePage() {
     isConManager ||
     user?.role === "DEPARTMENT_LEAD" ||
     (user?.departmentMembers?.length ?? 0) > 0;
+
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get("open");
+    if (q) setOpenId(q);
+  }, []);
 
   async function reload() {
     setError("");
@@ -382,7 +389,8 @@ export function LoadSchedulePage() {
                 {tasks.map((t) => (
                   <li
                     key={t.id}
-                    className="rounded-xl border border-slate-100 p-3"
+                    className="cursor-pointer rounded-xl border border-slate-100 p-3 transition hover:border-indigo-200 hover:bg-indigo-50/30"
+                    onClick={() => setOpenId(t.id)}
                   >
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div>
@@ -391,7 +399,7 @@ export function LoadSchedulePage() {
                             className="h-2 w-2 rounded-full"
                             style={{ background: t.department.color }}
                           />
-                          <span className="font-medium text-slate-900">
+                          <span className="font-medium text-indigo-700">
                             {t.title}
                           </span>
                           <Badge
@@ -407,13 +415,19 @@ export function LoadSchedulePage() {
                           {t.location ? ` · ${t.location}` : ""}
                         </div>
                         {t.description ? (
-                          <p className="mt-2 text-sm text-slate-600">
+                          <p className="mt-2 line-clamp-2 text-sm text-slate-600">
                             {t.description}
                           </p>
                         ) : null}
+                        <p className="mt-1 text-xs text-indigo-600">
+                          Click to edit · messages · change log
+                        </p>
                       </div>
                       {canEdit ? (
-                        <div className="flex flex-wrap gap-1">
+                        <div
+                          className="flex flex-wrap gap-1"
+                          onClick={(e) => e.stopPropagation()}
+                        >
                           {(
                             [
                               "PLANNED",
@@ -540,6 +554,15 @@ export function LoadSchedulePage() {
           </Card>
         ) : null}
       </div>
+
+      <EntityDetailModal
+        kind="load_task"
+        id={openId}
+        open={!!openId}
+        onClose={() => setOpenId(null)}
+        onSaved={() => void reload()}
+        departments={departments}
+      />
     </div>
   );
 }

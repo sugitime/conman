@@ -97,6 +97,15 @@ export class LoadScheduleController {
     return this.loadSchedule.update(id, user, body);
   }
 
+  @Post(":id/comments")
+  comment(
+    @Param("id") id: string,
+    @CurrentUser() user: AuthUser,
+    @Body() body: { body: string },
+  ) {
+    return this.loadSchedule.addComment(id, user, body.body);
+  }
+
   @Delete(":id")
   remove(@Param("id") id: string, @CurrentUser() user: AuthUser) {
     return this.loadSchedule.remove(id, user);

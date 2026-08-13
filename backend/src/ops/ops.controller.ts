@@ -75,10 +75,17 @@ export class OpsController {
     return this.ops.createTodo(user, body);
   }
 
+  @Get("todos/:id")
+  @RequireFeature("todos")
+  getTodo(@Param("id") id: string, @CurrentUser() user: AuthUser) {
+    return this.ops.getTodo(id, user);
+  }
+
   @Patch("todos/:id")
   @RequireFeature("todos")
   updateTodo(
     @Param("id") id: string,
+    @CurrentUser() user: AuthUser,
     @Body()
     body: Partial<{
       title: string;
@@ -87,9 +94,20 @@ export class OpsController {
       priority: TodoPriority;
       dueAt: string | null;
       assigneeId: string | null;
+      departmentId: string | null;
     }>,
   ) {
-    return this.ops.updateTodo(id, body);
+    return this.ops.updateTodo(id, user, body);
+  }
+
+  @Post("todos/:id/comments")
+  @RequireFeature("todos")
+  todoComment(
+    @Param("id") id: string,
+    @CurrentUser() user: AuthUser,
+    @Body() body: { body: string },
+  ) {
+    return this.ops.addTodoComment(id, user, body.body);
   }
 
   // Communications
@@ -171,6 +189,7 @@ export class OpsController {
   @RequireFeature("helpdesk")
   updateTicket(
     @Param("id") id: string,
+    @CurrentUser() user: AuthUser,
     @Body()
     body: Partial<{
       status: TicketStatus;
@@ -180,7 +199,7 @@ export class OpsController {
       description: string;
     }>,
   ) {
-    return this.ops.updateTicket(id, body);
+    return this.ops.updateTicket(id, user, body);
   }
 
   @Post("helpdesk/:id/comments")
@@ -190,12 +209,7 @@ export class OpsController {
     @CurrentUser() user: AuthUser,
     @Body() body: { body: string; isInternal?: boolean },
   ) {
-    return this.ops.addTicketComment(
-      id,
-      user.id,
-      body.body,
-      body.isInternal,
-    );
+    return this.ops.addTicketComment(id, user, body.body, body.isInternal);
   }
 
   // Calendar

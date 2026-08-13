@@ -33,6 +33,7 @@ import {
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { NotificationBell } from "@/components/NotificationBell";
 
 type NavItem = {
   to: string;
@@ -578,8 +579,13 @@ export function Layout() {
           ))}
         </nav>
         <div className="border-t border-white/10 p-4">
-          <div className="truncate text-sm font-medium">{user?.name}</div>
-          <div className="truncate text-xs text-slate-400">{user?.role}</div>
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <div className="truncate text-sm font-medium">{user?.name}</div>
+              <div className="truncate text-xs text-slate-400">{user?.role}</div>
+            </div>
+            <NotificationBell />
+          </div>
           <button
             className="mt-3 flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-slate-300 hover:bg-white/5"
             onClick={() => {

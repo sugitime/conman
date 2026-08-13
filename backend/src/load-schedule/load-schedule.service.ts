@@ -7,10 +7,14 @@ import {
 import { LoadPhase, LoadTaskStatus, Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuthUser } from "../common/decorators";
+import { NotificationsService } from "../notifications/notifications.service";
 
 @Injectable()
 export class LoadScheduleService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private notifications: NotificationsService,
+  ) {}
 
   private canManageDept(user: AuthUser, departmentId: string) {
     if (user.role === "CON_MANAGER") return true;
@@ -161,10 +165,14 @@ export class LoadScheduleService {
     if (!this.canManageDept(user, task.departmentId) && user.role !== "CON_MANAGER") {
       throw new ForbiddenException();
     }
-    return task;
+    const [messages, activity] = await Promise.all([
+      this.notifications.listComments("LOAD_TASK", id),
+      this.notifications.listActivity("LOAD_TASK", id),
+    ]);
+    return { ...task, messages, activity };
   }
 
-  create(
+  async create(
     user: AuthUser,
     data: {
       departmentId: string;
@@ -185,7 +193,7 @@ export class LoadScheduleService {
     if (!(endsAt > startsAt)) {
       throw new BadRequestException("endsAt must be after startsAt");
     }
-    return this.prisma.loadScheduleTask.create({
+    const task = await this.prisma.loadScheduleTask.create({
       data: {
         departmentId: data.departmentId,
         phase: data.phase,
@@ -205,6 +213,26 @@ export class LoadScheduleService {
         assignee: { select: { id: true, name: true } },
       },
     });
+    await this.notifications.logActivity({
+      entityType: "LOAD_TASK",
+      entityId: task.id,
+      actorId: user.id,
+      action: "created",
+      summary: `${user.name} created load task “${task.title}”`,
+    });
+    if (task.assigneeId) {
+      await this.notifications.notifyUsers({
+        userIds: [task.assigneeId],
+        eventKey: "load_task.assigned",
+        title: "Load task assigned to you",
+        body: task.title,
+        href: `/load-schedule?open=${task.id}`,
+        entityType: "LOAD_TASK",
+        entityId: task.id,
+        skipUserId: user.id,
+      });
+    }
+    return task;
   }
 
   async update(
@@ -240,7 +268,7 @@ export class LoadScheduleService {
       throw new BadRequestException("endsAt must be after startsAt");
     }
 
-    return this.prisma.loadScheduleTask.update({
+    const updated = await this.prisma.loadScheduleTask.update({
       where: { id },
       data: {
         title: data.title,
@@ -260,6 +288,123 @@ export class LoadScheduleService {
         assignee: { select: { id: true, name: true } },
       },
     });
+
+    const changes = this.notifications.diffFields(
+      {
+        ...existing,
+        startsAt: existing.startsAt.toISOString(),
+        endsAt: existing.endsAt.toISOString(),
+      } as unknown as Record<string, unknown>,
+      {
+        ...existing,
+        ...data,
+        startsAt: startsAt.toISOString(),
+        endsAt: endsAt.toISOString(),
+      } as unknown as Record<string, unknown>,
+      [
+        "title",
+        "description",
+        "location",
+        "startsAt",
+        "endsAt",
+        "status",
+        "phase",
+        "assigneeId",
+        "departmentId",
+      ],
+    );
+
+    if (changes) {
+      await this.notifications.logActivity({
+        entityType: "LOAD_TASK",
+        entityId: id,
+        actorId: user.id,
+        action: changes.status ? "status_changed" : "updated",
+        summary: `${user.name} updated load task “${updated.title}”`,
+        changes,
+      });
+
+      const watchers = [
+        existing.createdById,
+        existing.assigneeId,
+        updated.assigneeId,
+      ].filter(Boolean) as string[];
+
+      if (changes.assigneeId && updated.assigneeId) {
+        await this.notifications.notifyUsers({
+          userIds: [updated.assigneeId],
+          eventKey: "load_task.assigned",
+          title: "Load task assigned to you",
+          body: updated.title,
+          href: `/load-schedule?open=${id}`,
+          entityType: "LOAD_TASK",
+          entityId: id,
+          skipUserId: user.id,
+        });
+      }
+
+      if (changes.status) {
+        await this.notifications.notifyUsers({
+          userIds: watchers,
+          eventKey: "load_task.status",
+          title: "Load task status changed",
+          body: `${updated.title}: ${String(changes.status.from)} → ${String(changes.status.to)}`,
+          href: `/load-schedule?open=${id}`,
+          entityType: "LOAD_TASK",
+          entityId: id,
+          skipUserId: user.id,
+        });
+      }
+
+      await this.notifications.notifyUsers({
+        userIds: watchers,
+        eventKey: "load_task.updated",
+        title: "Load task updated",
+        body: `${user.name}: ${updated.title}`,
+        href: `/load-schedule?open=${id}`,
+        entityType: "LOAD_TASK",
+        entityId: id,
+        skipUserId: user.id,
+      });
+    }
+
+    return updated;
+  }
+
+  async addComment(id: string, user: AuthUser, body: string) {
+    const task = await this.prisma.loadScheduleTask.findUnique({
+      where: { id },
+    });
+    if (!task) throw new NotFoundException("Task not found");
+    if (!this.canManageDept(user, task.departmentId)) {
+      throw new ForbiddenException();
+    }
+    if (!body?.trim()) throw new BadRequestException("Message required");
+
+    const comment = await this.notifications.addComment({
+      entityType: "LOAD_TASK",
+      entityId: id,
+      authorId: user.id,
+      body,
+    });
+    await this.notifications.logActivity({
+      entityType: "LOAD_TASK",
+      entityId: id,
+      actorId: user.id,
+      action: "commented",
+      summary: `${user.name} left a message`,
+    });
+    await this.notifications.notifyUsers({
+      userIds: [task.createdById, task.assigneeId].filter(Boolean) as string[],
+      eventKey: "load_task.comment",
+      title: "New message on load task",
+      body: `${user.name}: ${body.slice(0, 140)}`,
+      href: `/load-schedule?open=${id}`,
+      entityType: "LOAD_TASK",
+      entityId: id,
+      skipUserId: user.id,
+    });
+    return comment;
   }
 
   async remove(id: string, user: AuthUser) {

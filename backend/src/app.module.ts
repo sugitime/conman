@@ -16,6 +16,7 @@ import { ProfilesModule } from "./profiles/profiles.module";
 import { LoadScheduleModule } from "./load-schedule/load-schedule.module";
 import { ConferencesModule } from "./conferences/conferences.module";
 import { ConferenceContextInterceptor } from "./conferences/conference-context.interceptor";
+import { NotificationsModule } from "./notifications/notifications.module";
 import { HealthController } from "./health.controller";
 import {
   FeatureGuard,
@@ -36,6 +37,7 @@ import {
     MailModule,
     AuthModule,
     ConferencesModule,
+    NotificationsModule,
     UsersModule,
     PoliciesModule,
     SettingsModule,
